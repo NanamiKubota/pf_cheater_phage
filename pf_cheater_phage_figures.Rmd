@@ -1,0 +1,1171 @@
+---
+title: "Pf cheater phage manuscript figures"
+author: "Nanami Kubota"
+date: 'Last updated: `r Sys.Date()`'
+output:
+  # pdf_document:
+  #   toc: true
+  #   latex_engine: xelatex
+  html_document:
+    number_sections: true
+    toc: true
+    toc_float: true
+---
+
+```{r setup, include=FALSE}
+#Set working directory
+knitr::opts_knit$set(root.dir = "/Users/kubotan/Documents/github/pf_cheater_phage")
+```
+
+<br>
+
+# Load libraries and color palette
+
+Load libraries
+```{r, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(growthcurver) #growth curve calculations
+library(reshape2)
+library(gggenes) #gene map
+library(ggrepel)
+library(stringr)
+library(scales)
+library(colorspace) #needed for darkening text color
+library(viridis) #color gradient
+library(ggstar) #adds star to ggplot (for pf5r mutants)
+library(ggh4x)
+```
+
+Color table
+```{r, warning=FALSE}
+col_csv <- read.csv("./figures/color_table.csv", header = T) #generates warning but you can ignore this
+col_hex <- setNames(object = col_csv$hex, nm=col_csv$strain)
+
+col_hex2 <- col_hex
+names(col_hex2)[1] <- "PA14 WT"
+names(col_hex2)[4] <- "PA14 WT "
+```
+
+# Read depth figure
+
+<br>
+
+## Prepare data
+
+
+### Load data
+
+<br>
+
+Gather read depth data for individual clones
+```{r}
+#PA14 WT
+wt <- read.delim("./read_depth/data/PA14WT_cov_10.txt", col.names = c("n","start","end","read_depth"))
+wt$id <- "wt"
+
+#PA14*full
+f <- read.delim("./read_depth/data/B1_PA14_full_cov_10.txt", col.names = c("n","start","end","read_depth"))
+f$id <- "f"
+
+#PA14*full/mini
+fm <- read.delim("./read_depth/data/new_G1_PA14_full_mini_cov_10.txt", col.names = c("n","start","end","read_depth"))
+fm$id <- "fm"
+
+#PA14*mini
+m <- read.delim("./read_depth/data/Pf5_cap_del_1_PA14_mini_cov_10.txt", col.names = c("n","start","end","read_depth"))
+m$id <- "m"
+
+#PA14delPf5
+delPf5 <- read.delim("./read_depth/data/delPf5_PA14_del_Pf5_cov_10.txt", col.names = c("n","start","end","read_depth"))
+delPf5$id <- "delPf5"
+
+rd <- rbind(wt, f, fm, m, delPf5)
+```
+
+Read depth for evolved population
+```{r}
+pop5 <- read.delim("./read_depth/data/plank_no_drug_pop5_day12_SRR13453461_cov_10.txt", col.names = c("n","start","end","read_depth"))
+pop5$id <- "pop5"
+```
+
+<br>
+
+### calculate average
+
+Pf circularization in new reference genome: 4345098-4355762
+
+Pf loss in new reference genome: 4345107-4355773
+
+Calculate average read depth 1kb upstream of Pf5 in all strains
+
+```{r}
+up_rd <- rd[which(rd$end < 4345100 & rd$end >= 4344100),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+
+up_rd_avg <- up_rd %>%
+  group_by(id) %>%
+  summarise_at(vars(read_depth), list(up_avg = mean))
+```
+
+Calculate average read depth 1kb downstream of Pf5 in all strains
+```{r}
+down_rd <- rd[which(rd$start >= 4355780 & rd$start < 4356780),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+down_rd_avg <- down_rd %>%
+  group_by(id) %>%
+  summarise_at(vars(read_depth), list(down_avg = mean))
+```
+
+Combine up and down average
+```{r}
+bac_avg <- merge(up_rd_avg, down_rd_avg, by="id")
+```
+
+Average by both up and down stream
+```{r}
+bac_avg$bac_avg <- rowMeans(bac_avg[,c("up_avg","down_avg")])
+bac_avg
+```
+
+Do for pop5
+
+Calculate average read depth 1kb upstream of Pf5 in all strains
+
+```{r}
+up_pop5 <- pop5[which(pop5$end < 4345100 & pop5$end >= 4344100),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+up_pop5_avg <- up_pop5 %>%
+  group_by(id) %>%
+  summarise_at(vars(read_depth), list(up_avg = mean))
+```
+
+Calculate average read depth 1kb downstream of Pf5 in all strains
+```{r}
+down_pop5 <- pop5[which(pop5$start >= 4355780 & pop5$start < 4356780),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+down_pop5_avg <- down_pop5 %>%
+  group_by(id) %>%
+  summarise_at(vars(read_depth), list(down_avg = mean))
+```
+
+Combine up and down average
+```{r}
+pop5_avg <- merge(up_pop5_avg, down_pop5_avg, by="id")
+```
+
+Average by both up and down stream
+```{r}
+pop5_avg$pop5_avg <- rowMeans(pop5_avg[,c("up_avg","down_avg")])
+```
+
+### ORF annotation
+
+Annotation data
+```{r}
+#read annotation (from Pseudomonas Genome Database v21.1)
+pa14 <- read.csv("./read_depth/Pseudomonas_aeruginosa_UCBPP-PA14_109.csv", header = T)
+
+#subset pf5 + flanking genes
+row1 <- which(pa14$Locus.Tag=="PA14_48870") #left side of pf5
+row2 <- which(pa14$Locus.Tag=="PA14_49040") #right side of pf5
+
+pf5 <- pa14[row1:row2,] #pf5 with flanking genes
+
+#turn hypothetical proteins = NA for labeling purposes
+pf5$label <- pf5$Product.Name #make a new column that is identical to the product column
+pf5$label[which(pf5$Product.Name == "C32 tRNA thiolase")] <- "tRNA"
+pf5$label[which(pf5$Product.Name == "bacteriophage integrase")] <- "integrase"
+pf5$label[which(pf5$Locus.Tag == "PA14_48890")] <- "replication initiator"
+pf5$label[which(pf5$Locus.Tag == "PA14_48910")] <- "Zot"
+pf5$label[which(pf5$Locus.Tag == "PA14_48990")] <- "pflM"
+pf5$label[which(pf5$Product.Name == "bacteriophage protein")] <- "capsid"
+pf5$label[which(pf5$Product.Name == "coat protein A of bacteriophage Pf1")] <- "capsid"
+pf5$label[which(pf5$Product.Name == "coat protein B of bacteriophage Pf1)")] <- "capsid"
+pf5$label[which(pf5$Locus.Tag == "PA14_48960")] <- "pfsE"
+pf5$label[which(pf5$Product.Name == "helix destabilizing protein of bacteriophage Pf1")] <- "hypothetical protein"
+pf5$label[which(pf5$Product.Name == "Pf5 prophage excisionase, XisF5")] <- "xisF5"
+pf5$label[which(pf5$Product.Name == "Pf5 repressor C")] <- "pf5r"
+for (i in 1:nrow(pf5)) {
+  if(pf5$label[i]=="hypothetical protein"){
+    pf5$label[i] <- NA
+  }
+}
+
+#fix direction of ORF
+pf5$new_start <- NA
+pf5$new_end <- NA
+pf5$label_position <- NA
+for (j in 1:nrow(pf5)) {
+  if(pf5$Strand[j] == "+"){
+    pf5$new_start[j] <- pf5$Start[j]
+    pf5$new_end[j] <- pf5$End[j]
+  }else{
+    pf5$new_start[j] <- pf5$End[j]
+    pf5$new_end[j] <- pf5$Start[j]
+  }
+  pf5$label_position[j] <- mean(c(pf5$Start[j], pf5$End[j]))
+}
+
+#copy for evolved population
+pf5_pop5 <- pf5
+```
+
+<br>
+
+Multiply annotation by 5 to get individual gene maps and add id
+```{r}
+id_c <- c("wt", "f", "fm", "m", "delPf5")
+pf5$id <- "wt"
+pf5_5 <- pf5
+for (i in 2:length(id_c)) {
+  temp <- pf5
+  temp$id <- id_c[i]
+  pf5_5 <- rbind(pf5_5, temp)
+}
+
+# factor to change order
+pf5_5$id <- factor(pf5_5$id, levels=c("wt", "f", "fm", "m", "delPf5"))
+
+#remove labels from all but last one
+pf5_5$label_text <- pf5_5$label
+pf5_5[which(pf5_5$id != "delPf5"),"label_text"] <- NA
+```
+
+<br>
+
+### subset read depth to Pf5 prophage
+
+```{r}
+#subset coverage
+range_min <- min(pf5_5$new_end) #find position of left side of genome 
+range_max <- max(pf5_5$new_end) #find position of the right side of genome
+rd.sub <- rd[which(rd$start>=range_min & rd$end<=range_max),]
+```
+
+Do for pop5
+```{r}
+#subset coverage
+range_min <- min(pf5_pop5$new_end) #find position of left side of genome 
+range_max <- max(pf5_pop5$new_end) #find position of the right side of genome
+pop5.sub <- pop5[which(pop5$start>=range_min & pop5$end<=range_max),]
+```
+
+
+### normalize read depth
+
+```{r}
+#average rd.sub by bac_avg dataframe
+rd.sub$norm <- NA
+for (i in 1:nrow(rd.sub)) {
+  id_i <- rd.sub$id[i]
+  b_avg <- bac_avg[which(bac_avg$id == id_i), "bac_avg"]
+  rd.sub$norm[i] <- rd.sub$read_depth[i] / b_avg
+}
+```
+
+Do for pop5
+```{r}
+#average rd.sub by bac_avg dataframe
+pop5.sub$norm <- NA
+for (i in 1:nrow(pop5.sub)) {
+  id_i <- pop5.sub$id[i]
+  b_pop5_avg <- pop5_avg[which(pop5_avg$id == id_i), "pop5_avg"]
+  pop5.sub$norm[i] <- pop5.sub$read_depth[i] / b_pop5_avg
+}
+```
+
+<br>
+
+### center gene map
+
+```{r}
+#center annotation map
+pf5_5$r <- rep(c(250, 1500, 4000, 75, 60), each=18)
+r <- c(250, 1500, 4000, 75, 60)
+
+#for normalized maps
+pf5_5$rnorm <- rep(c(1.5, 12.5, 100, 0.75, 0.75), each=18)
+rnorm <- c(1.5, 12.5, 100, 0.75, 0.75)
+```
+
+<br>
+
+### gene colors
+
+Color scheme
+```{r}
+pf5_5$label <- factor(pf5_5$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "Zot", "pflM"))
+pf_colors <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3","#E41A1C"), levels(pf5_5$label))
+
+pf5_pop5$label <- factor(pf5_pop5$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "Zot", "pflM"))
+pf_colors_pop5 <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3","#E41A1C"), levels(pf5_pop5$label))
+```
+
+<br>
+
+## figures
+
+<br>
+
+### Gene map with read depth
+
+<br>
+
+Fix label position
+```{r}
+#remove locus_tag from all but last one
+pf5_5$locus_text <- pf5_5$Locus.Tag
+pf5_5[which(pf5_5$id != "delPf5"),"locus_text"] <- NA
+
+#move flanking genes locus tag to separate column in order to move them down below gene map for readability
+pf5_5$locus_flank_text <- pf5_5$locus_text
+pf5_5[which(!(pf5_5$Locus.Tag %in% c("PA14_49040", "PA14_48870"))),"locus_flank_text"] <- NA
+pf5_5[which((pf5_5$Locus.Tag %in% c("PA14_49040", "PA14_48870"))),"locus_text"] <- NA
+
+#move label_position for tRNA
+pf5_5[which(pf5_5$label_text == "tRNA"),"label_position"] <- 4344669 +350
+pf5_5[which(pf5_5$locus_flank_text == "PA14_49040"),"label_position"] <- 4356146 +250
+
+#star symbol for pf5r mutation
+pf5r_mut <- data.frame(x=rep(4353504, 3), y=c(1500, 4000, 75), rnorm=c(12.5, 100, 0.75), id=c("f", "fm", "m"))
+
+#plot
+rd_plot <- ggplot() +
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  geom_gene_arrow(data=pf5_5, aes(xmin = new_start, xmax = new_end, y = rnorm,fill = label),arrowhead_height = unit(1, "cm"),arrowhead_width = unit(0.5, "cm"),arrow_body_height = unit(1,"cm"))+
+  geom_star(data=pf5r_mut, aes(x=x, y=rnorm), starshape=1, fill="goldenrod", size=5, starstroke=1)+
+  facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
+  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "white")+
+  scale_color_manual(values = darken(pf_colors, 0.2))+
+  theme_light()+
+  labs(y = "Phage read depth relative to bacterial chromosome")+
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_text(size=30),
+        legend.position = "none", 
+        strip.background = element_blank(), 
+        strip.text.x = element_blank(), 
+        text = element_text(size = 24))+
+  scale_x_continuous(labels=comma, limits = c(4344257,4356442))+
+  geom_text(data=pf5_5, aes(x=label_position, y=0.75*rnorm, label=stringr::str_wrap(label_text,10), color=label), angle = 45, nudge_x = 20, nudge_y = 0, hjust = 1, size=7) + 
+  geom_text(data=pf5_5, aes(x=label_position, y=1.2*rnorm, label=stringr::str_wrap(locus_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = 0, hjust = 0, size=5) +
+  geom_text(data=pf5_5, aes(x=label_position, y=0.75*rnorm, label=stringr::str_wrap(locus_flank_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = -250, hjust = 1, size=5) +
+  geom_line(data=rd.sub, aes(x=start,y=norm), alpha=0.4)+
+  geom_area(data=rd.sub, aes(x=start,y=norm),alpha = 0.1, position = 'identity')
+```
+
+
+```{r, fig.height = 15, fig.width = 15, warning=FALSE}
+rd_plot
+```
+
+Save
+```{r, warning=FALSE}
+ggsave("./figures/Pf5_read_depth_normalized.svg", plot = rd_plot, device = "svg",width = unit(16,"cm"), height = unit(16,"cm"), dpi = 300)
+
+ggsave("./figures/Pf5_read_depth_normalized.png", plot = rd_plot, device = "png",width = unit(16,"cm"), height = unit(16,"cm"), dpi = 300)
+```
+
+### Full vs mini read depth
+
+highlight miniphage vs full length phage region and calculate proportion
+
+For original P. aeruginosa PA14 (from Pseudomonas Genome Database):
+
+- Pf5 phage region: 4345126-4355790
+- pf5r duplicated region: 4353517-4353532 (16bp)
+- Miniphage junction in PA14*full/mini: = 4348020, 4352056 =
+- pf5r gene ORF: 4353287-4353553
+
+For new reference genome (use this since read depth calculated using reads mapped to new reference):
+
+- Pf5 phage region: 4345098-4355762
+- pf5r duplicated region: 4353489-4353504 (16bp)
+- Miniphage junction in PA14*full/mini: = 4347992, 4352028 =
+- pf5r gene ORF: 4353259-4353525
+
+Try calculating from:
+
+- full length (region deleted in miniphage): 
+  - left side (4347992) -> round up to nearest 10th window -> 4348000 
+  - right side (4352028) -> round down to nearest 10th window -> 4352020 
+- miniphage + full length (region in both phages):
+  - left side of miniphage junction:
+    - left side of Pf5 (4345098) -> round up to nearest 10th window -> 4345100
+    - start of miniphage junction -> 4348000
+  - right side of miniphage junction:
+    - end of miniphage junction -> 4352020
+    - right side of Pf5 (4355762) -> round down to nearest 10th window -> 4355760
+
+```{r}
+full_rd <- rd.sub[which(rd.sub$start >= 4348000 & rd.sub$start <= 4352020),] #subset Pf5 region present only in full-length Pf5 phage
+pf5_rd <- rd.sub[which(rd.sub$start >= 4345100 & rd.sub$start <= 4355760),] #subset only Pf5 reads (removing flanking gene)
+mini_full_rd <- pf5_rd[which((pf5_rd$start >= 4345100 & pf5_rd$start <= 4348000) | (pf5_rd$start >= 4352020 & pf5_rd$start <= 4355760)),] #subset full+mini region
+mini_full_rd <- mini_full_rd[which(!(mini_full_rd$start >= 4353259 & mini_full_rd$start <= 4353525)),] #remove pf5r region b/c some reads don't bind due to pf5r mutation
+```
+
+Create dataframe with mean and sd of full vs full/mini normalized reads
+```{r}
+full_stat <- full_rd %>%
+  group_by(id) %>%
+  summarise(mean= mean(norm), sd= sd(norm), max = max(norm),min = min(norm))
+full_stat$region <- "Pf5*full"
+mini_full_stat <- mini_full_rd %>%
+  group_by(id) %>%
+  summarise(mean= mean(norm), sd= sd(norm), max = max(norm),min = min(norm))
+mini_full_stat$region <- "Pf5*full + Pf5*mini"
+
+all_stat <- rbind(full_stat, mini_full_stat) %>%
+  mutate(
+    mean_round = ifelse(id %in% c("wt", "f", "fm"), round(mean, digits = 2), round(mean, digits = 3))
+    )
+```
+
+Relabel strains
+```{r}
+all_stat$label <- NA
+all_stat[which(all_stat$id == "wt"),"label"] <- "PA14 WT"
+all_stat[which(all_stat$id == "f"),"label"] <- "PA14*full"
+all_stat[which(all_stat$id == "fm"),"label"] <- "PA14*full/mini"
+all_stat[which(all_stat$id == "m"),"label"] <- "PA14*mini"
+all_stat[which(all_stat$id == "delPf5"),"label"] <- "PA14ΔPf5"
+```
+
+Plot
+```{r, fig.width=6, fig.height=4}
+all_stat_plot <- ggplot(all_stat, aes(x=label, y=mean, group=region, color=str_wrap(region,10), label=mean_round))+
+  geom_point(position = position_dodge(w = 0.75))+
+  geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(w = 0.75))+
+  geom_text(position=position_dodge(0.75), vjust=c(-2,-2,-2,-2,-2,-2,-2,-6,-2,-2), show.legend = FALSE, size=3)+
+  labs(x="Strains", y="Read depth normalized to bacterial chromosome", color="Pf5 region")+
+  scale_y_continuous(limits = c(0,200), breaks = seq(0,200,20))+
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(),
+        panel.grid.minor.x = element_blank(),
+        panel.grid.minor.y = element_blank())
+all_stat_plot
+```
+
+Save graph
+```{r}
+ggsave("./figures/full_mini_read_depth_normalized_stat.png", plot = all_stat_plot, device = "png", width = unit(6,"cm"), height = unit(4,"cm"), dpi = 300)
+
+ggsave("./figures/full_mini_read_depth_normalized_stat.svg", plot = all_stat_plot, device = "svg", width = unit(6,"cm"), height = unit(4,"cm"), dpi = 300)
+```
+
+### Miniphage diversity
+
+```{r}
+mini_del <- read.csv("./whole_genome_sequencing/breseq_data/breseq_miniphage.csv")
+strain_order <- c("PA14", "PA14*mini", "PA14*full/mini 4", "PA14*full/mini 3", "PA14*full/mini 2", "PA14*full/mini 1")
+
+mini_del_long <- mini_del %>%
+  mutate(ylabel = factor(strain, levels = strain_order))
+
+mini_color <- mini_del_long %>%
+  select(color, ylabel) %>%
+  mutate(ylabel = factor(ylabel, levels = strain_order)) %>%
+  arrange(ylabel)
+
+pf5_single <- pf5 %>%
+  mutate(ylabel = "PA14") %>%
+  mutate(ylabel = factor(ylabel, levels = strain_order))
+
+mini_div_plot <- ggplot()+
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  geom_gene_arrow(data=pf5_single, aes(xmin = new_start, xmax = new_end, y = ylabel, fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
+  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "white")+
+  scale_color_manual(values = darken(pf_colors, 0.2))+
+  theme_light() +
+  scale_x_continuous(labels=comma)+
+  geom_text(data=pf5_single, aes(x=label_position, y=ylabel, label=stringr::str_wrap(label,10), color=label), angle = 45, nudge_y = -0.3, hjust = 1, vjust= 1, size=4)+
+  geom_linerange(data=mini_del_long, aes(y=ylabel, xmin=side_1_position, xmax=side_2_position), position = position_dodge2(width=1, preserve = "single"), color=(mini_color$color))+
+  geom_text(data=mini_del_long, aes(y=ylabel, x=side_1_position, label = comma(side_1_position)),position = position_dodge2(width=1, preserve = "single"), hjust=1.1, size=2.8)+
+  geom_text(data=mini_del_long, aes(y=ylabel, x=side_2_position, label = comma(side_2_position)),position = position_dodge2(width=1, preserve = "single"), hjust=-0.1, size=2.8)+
+  scale_y_discrete(
+    breaks = levels(mini_del_long$ylabel),
+    expand = expansion(mult = 0.05),
+    limits = c(
+      "skip",
+      levels(mini_del_long$ylabel)[1], #PA14
+      levels(mini_del_long$ylabel)[-1]
+      ))+
+  theme(
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    legend.position = "none",
+    strip.background = element_blank(),
+    strip.text.x = element_blank(),
+    text = element_text(size = 15))
+```
+
+```{r, fig.width=8, fig.height=5.5, warning=FALSE}
+mini_div_plot
+```
+
+
+Save
+```{r, warning=FALSE}
+ggsave("./figures/miniphage_deletion_position.png", plot = mini_div_plot, device = "png",width = unit(8,"cm"), height = unit(6,"cm"))
+
+ggsave("./figures/miniphage_deletion_position.svg", plot = mini_div_plot, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"))
+```
+
+<br>
+
+### Evolved population read depth
+
+```{r}
+r=150
+
+#remove locus_tag from all but last one
+pf5_pop5$locus_text <- pf5_pop5$Locus.Tag
+pf5_pop5[which(pf5_pop5$id != "delPf5"),"locus_text"] <- NA
+
+pop5.plot <- ggplot() +
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  #geom_hline(yintercept=r, alpha=0.5)+
+  geom_gene_arrow(data=pf5_pop5, aes(xmin = new_start, xmax = new_end, y = r,fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
+  facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
+  scale_fill_manual(values = lighten(pf_colors_pop5, 0.2), name="Gene", na.value = "white")+
+  scale_color_manual(values = darken(pf_colors_pop5, 0.2))+
+  theme_light()+
+  theme(axis.title.x = element_blank(), axis.title.y = element_blank(), legend.position = "none", strip.background = element_blank(), strip.text.x = element_blank(), text = element_text(size = 15))+
+  scale_x_continuous(labels=comma)+
+  coord_cartesian(ylim=c(0, 200))+
+  geom_text(data=pf5_pop5, aes(x=label_position, y=0.9*r, label=stringr::str_wrap(label,10), color=label), angle = 45, nudge_y = 0, hjust = 1, size=4) + #y=4700 for PAO1PfDI; y=160 for PAO1_WT; size=4 or 2.5, str_wrap 50, angle 50
+  geom_text(data=pf5_pop5, aes(x=label_position, y=1.1*r, label=stringr::str_wrap(locus_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = 0, hjust = 0, size=4) +
+  geom_line(data=pop5.sub, aes(x=start,y=norm), alpha=0.4)+
+  geom_area(data=pop5.sub, aes(x=start,y=norm),alpha = 0.1, position = 'identity')
+```
+
+```{r, fig.width=12, fig.height=4, warning=FALSE}
+pop5.plot
+```
+
+
+```{r, warning=FALSE}
+ggsave("./figures/pop5_read_depth.png", plot = pop5.plot, device = "png",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+
+ggsave("./figures/pop5_read_depth.svg", plot = pop5.plot, device = "svg",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+```
+
+
+<br>
+
+# Growth curve OD600
+
+<br>
+
+## Prepare data
+
+```{r}
+file <- "./growth_curves/OD600/Plate_reader_2024-06-30.csv"
+p <- read.csv(file,header=T,skip = 2)
+
+p <- head(p,-5) #remove last few rows
+p <- p[,-2] #remove temperature column
+
+p[97,which(colnames(p)%in%"Time")]  <- c("24:00:00") #run for newer program
+
+k <- "./growth_curves/OD600/Plate_key_2024-06-29.csv"
+key <- read.csv(k,header=F) #key to denote what samples are in each well
+
+for (i in 2:ncol(p)) {
+  well <- colnames(p)[i]
+  num <- which(key[,1]%in%well)
+  colnames(p)[i] <- as.character(key[num,2])
+}
+
+blank <- p[,which(colnames(p)%in%"blank")]
+indx <- sapply(blank, is.character)
+blank[indx] <- lapply(blank[indx], function(x) as.numeric(x))
+blank_mean <- data.frame(Time=p[,1],Means=rowMeans(blank,na.rm=TRUE))
+pdata <- p[,-which(colnames(p)%in%"blank")]
+pdata$blank_mean <- blank_mean[,2] #name new column blank_mean with average of all blanks
+pcal <- pdata
+for (i in 2:ncol(pdata)) {
+  pcal[,i] <- as.numeric(as.character(pdata[,i]))-as.numeric(as.character(pdata$blank_mean))
+}
+pclean <- pcal[,-which(colnames(pcal)%in%"blank_mean")]
+pclean$Time <- p[,1]
+
+pclean$Time <- as.factor(pclean$Time)
+pclean$Time_convert <- unlist(lapply(lapply(strsplit(as.character(pclean$Time), ":"), as.numeric), function(x) x[1]+x[2]/60))
+pclean2 <- pclean[,!names(pclean) %in% c("Time")]
+pclean2 <- pclean2[,!names(pclean2) %in% c("Time(hh:mm:ss)")] #only for older program?
+pmelt <- melt(pclean2,id.vars="Time_convert") #melt dataframe
+pmelt$strain <- gsub("\\..*","",pmelt$variable) #remove period and numbers from strain names
+pmelt <- pmelt[!(is.na(pmelt$strain) | (pmelt$strain == 'NA')),] #remove NAs
+
+data_summary <- function(data, varname, groupnames){
+  summary_func <- function(x, col){
+    c(mean = mean(x[[col]], na.rm=TRUE),
+      sd = sd(x[[col]], na.rm=TRUE))
+  }
+  data_sum<-plyr::ddply(data, groupnames, .fun=summary_func,
+                  varname)
+  data_sum <- plyr::rename(data_sum, c("mean" = varname))
+  return(data_sum)
+}
+
+pilA_gc <- data_summary(pmelt,varname = "value",groupnames = c("strain","Time_convert"))
+
+pilA_gc$label = factor(pilA_gc$strain, levels=c("Lac Ancestor", "PA14 pilA","B1", "new G1"))
+exprvec <- c("PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), "PA14*full", "PA14*full/mini")
+```
+
+## growth curver
+
+GC stats
+```{r}
+#Compare area under the curve--load data
+#Remove blank row and keep only the columns sample, k, r, auc_e
+gc_out3 <- read.csv("./growth_curves/OD600/growth_curve_calc.csv") %>%
+  select(sample,k,auc_e) %>%
+  subset(sample == "Lac Ancestor" | sample == "PA14 pilA" | sample == "new G1" | sample == "B1")
+
+#Clean the names for downstream labeling of the dot plot
+names(gc_out3)[names(gc_out3) == 'sample'] <- 'Strains'
+gc_long <- melt(gc_out3, id = "Strains")
+levels(gc_long$variable) <- c("Carrying~Capacity~(Final~OD[600])", "Area~Under~the~Curve~(AUC)")
+
+gc_long$label = factor(gc_long$Strains, levels=c("Lac Ancestor", "PA14 pilA","B1", "new G1"))
+```
+
+
+## Figure
+
+### Timepoints
+
+```{r}
+pilA_gc_plot <- ggplot(pilA_gc, aes(x=Time_convert, y=value, group=strain, color=label)) +
+  geom_errorbar(aes(ymin=value-sd, ymax=value+sd), width=.1,position=position_dodge(0.05)) +
+  geom_line() +
+  scale_y_continuous(trans = 'log10')+ #use for log scale
+  scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
+  labs(color = "Strains", x="Time (h)", y=expression(OD[600]))+
+  theme_bw()+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
+  theme(legend.position = "top", text = element_text(size = 18))
+```
+
+
+```{r}
+pilA_gc_plot
+```
+
+
+
+```{r}
+ggsave("./figures/growth_curve_OD600.png", plot = pilA_gc_plot, device = "png",width = unit(8,"cm"), height = unit(6,"cm"))
+ggsave("./figures/growth_curve_OD600.svg", plot = pilA_gc_plot, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"))
+```
+
+<br>
+
+### Growth curve stats
+
+<br>
+
+```{r}
+#Dot plot of carrying capacity, growth rate, area under the curve (auc_e)
+gc_stat2 <- ggplot(gc_long, aes(x = label, y = value,fill=label,color=label)) +
+  geom_point(size=3, alpha=0.3, position=position_jitter(w=0.1, h=0))+
+  scale_x_discrete(labels=exprvec)+
+  facet_wrap(~variable, scales = "free",strip.position = "left",labeller = label_parsed)+
+  scale_fill_manual(values = col_hex, drop=F, labels=exprvec)+
+  scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=0.1, color="black") +
+  stat_summary(fun=base::mean, geom="crossbar", fatten=3, width=0.2)+
+  theme_bw()+
+  theme(axis.title.y = element_blank(),
+        axis.title.x = element_blank(),
+        axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
+        strip.background = element_blank(),
+        strip.placement = "outside",
+        legend.position = "none",
+        text = element_text(size = 18))
+gc_stat2
+```
+
+```{r}
+ggsave("./figures/growth_curve_OD600_stats.png", plot = gc_stat2, device = "png",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+
+ggsave("./figures/growth_curve_OD600_stats.svg", plot = gc_stat2, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+```
+
+
+<br>
+
+# Growth Curve CFU/mL
+
+## WT data
+
+Read data
+```{r}
+cfu <- read.csv("./growth_curves/cfu_ml/growth_cfu.csv")
+cfu$id <- paste(cfu$abbreviation, cfu$bio_rep)
+```
+
+Rename strain to appropriate names
+```{r}
+cfu$bac_label <- NA
+cfu[which(cfu$bacteria == "Ancestor"), "bac_label"] <- "PA14 WT"
+cfu[which(cfu$bacteria == "B1"), "bac_label"] <- "PA14*full"
+cfu[which(cfu$bacteria == "new G1"), "bac_label"] <- "PA14*full/mini"
+
+cfu$sup_label <- "None"
+cfu[which(cfu$supernatant == "Ancestor"), "sup_label"] <- "PA14 WT"
+cfu[which(cfu$supernatant == "B1"), "sup_label"] <- "PA14*full"
+cfu[which(cfu$supernatant == "new G1"), "sup_label"] <- "PA14*full/mini"
+```
+
+## pilA data
+
+```{r}
+cfu_pilA <- read.csv("./growth_curves/cfu_ml/pilA_growth_cfu.csv")
+cfu_pilA$id <- paste(cfu_pilA$abbreviation, cfu_pilA$bio_rep)
+
+cfu_pilA$bac_label <- "PA14 pilA"
+#rename names to appropriate labels
+cfu_pilA$sup_label <- "None"
+cfu_pilA[which(cfu_pilA$supernatant == "Ancestor"), "sup_label"] <- "PA14 WT"
+cfu_pilA[which(cfu_pilA$supernatant == "pilA"), "sup_label"] <- "PA14 pilA"
+
+cfu_pilA$sup_color <- cfu_pilA$sup_label
+
+cfu_pilA[which(cfu_pilA$supernatant == "B1"), "sup_label"] <- "PA14*full"
+cfu_pilA[which(cfu_pilA$supernatant == "new G1"), "sup_label"] <- "PA14*full/mini"
+
+cfu_pilA[which(cfu_pilA$supernatant == "B1"), "sup_color"] <- "B1"
+cfu_pilA[which(cfu_pilA$supernatant == "new G1"), "sup_color"] <- "new G1"
+cfu_pilA$sup_color = factor(cfu_pilA$sup_color, levels=c("None", "PA14 WT", "PA14 pilA","B1", "new G1"))
+cfu_pilA$sup_label = factor(cfu_pilA$sup_label, levels=c("None", "PA14 WT", "PA14 pilA","PA14*full", "PA14*full/mini"))
+
+exprvec <- c("None", "PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), "PA14*full", "PA14*full/mini")
+```
+
+
+
+<br>
+
+## Figures
+
+### pilA supernatant treatment
+
+```{r}
+anc <- cfu %>%
+  filter(bacteria == "Ancestor")
+
+anc$sup_color <- anc$sup_label
+anc[which(anc$supernatant == "B1"), "sup_color"] <- "B1"
+anc[which(anc$supernatant == "new G1"), "sup_color"] <- "new G1"
+cfu_pilA_anc <- rbind(anc, cfu_pilA)
+
+cfu_pilA_anc$sup_color = factor(cfu_pilA_anc$sup_color, levels=c("None", "PA14 WT", "PA14 pilA", "B1", "new G1"))
+exprvec <- c("None", "PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), "PA14*full", "PA14*full/mini")
+
+cfu_pilA_anc$sup_label <- factor(cfu_pilA_anc$sup_label,levels = c("None", "PA14 WT", "PA14 pilA", "PA14*full", "PA14*full/mini"))
+
+cfu_pilA_anc$bac_label <- factor(cfu_pilA_anc$bac_label,levels = c("PA14 WT", "PA14 pilA"), ordered = T, labels= c(expression(paste("PA14 ","WT")), expression(paste("PA14",Delta,italic("pilA")))))
+```
+
+
+take average of replicates
+
+```{r, fig.width=10}
+pilA_anc_sup_avg_plot <- ggplot(cfu_pilA_anc, aes(x=hour, y=CFU.mL, group=abbreviation, color=sup_label))+
+  geom_point(alpha=0.5, size=1.5, shape=16, show.legend = FALSE)+
+  # geom_line()+
+  facet_wrap(~bac_label, ncol = 2, labeller = label_parsed)+
+  scale_y_continuous(trans = "log10", breaks = c(1e6,1e7,1e8,1e9,1e10), limits = c(1e6,1e10))+
+  scale_color_manual(values = col_hex2, labels=exprvec)+
+  stat_summary(fun=mean, geom = "line")+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=0.8) +
+  labs(x="Hours", y="CFU/mL", color="Supernatant")+
+  theme_bw()+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))
+pilA_anc_sup_avg_plot
+```
+
+save
+```{r}
+ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL.png", units = "cm", width = 23, height = 10, device = "png", dpi = 300)
+
+ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL.svg", units = "cm", width = 23, height = 10, device = "svg", dpi = 300)
+```
+
+### Bacteria growth curve
+
+```{r, fig.height=6}
+sub2 <- cfu %>%
+  filter(abbreviation %in% c("A", "B", "G"))
+
+cfu_pilA_ns <- cfu_pilA %>%
+  filter(is.na(supernatant)) %>%
+  select(-sup_color)
+
+sub2_pilA <- rbind(sub2, cfu_pilA_ns)
+sub2_pilA$bac_color <- sub2_pilA$bac_label
+
+sub2_pilA$bac_label <- factor(sub2_pilA$bac_color,levels = c("PA14 WT", "PA14 pilA", "PA14*full", "PA14*full/mini"), ordered = T)
+
+exprvec <- c(expression(paste("PA14 ","WT")), expression(paste("PA14",Delta,italic("pilA"))),expression(paste("PA14*full")),expression(paste("PA14*full/mini")))
+
+col_hex3 <- col_hex
+names(col_hex3)[4] <- "PA14 WT"
+
+plot_sub3 <- ggplot(sub2_pilA, aes(x=hour, y=CFU.mL, group=bac_label, color=bac_label))+
+  geom_point(alpha=0.5, size=2, shape=16)+
+  stat_summary(fun=mean, geom = "line")+
+  scale_y_continuous(trans = "log10", limits = c(1e5, 1e10), breaks = c(1e5, 1e6, 1e7, 1e8, 1e9, 1e10))+
+  scale_color_manual(values = col_hex3, labels=exprvec)+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=0.5) +
+  labs(x="Time (h)", y="CFU/mL", color="Strains")+
+  theme_bw()+
+  theme(legend.position = "top", text = element_text(size = 18))+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))
+plot_sub3
+```
+
+```{r}
+ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL.png", device = "png",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+
+ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL.svg", device = "svg",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+```
+
+### CFU stats
+
+with pilA
+
+```{r}
+sub2_pilA_24h <- sub2_pilA %>%
+  filter(hour == 24)
+
+cfu_stat_plot2 <- ggplot(sub2_pilA_24h, aes(x=bac_label, y=CFU.mL, color=bac_label, fill=bac_label, group=bac_label))+
+  geom_point(size=3, alpha=0.5, position=position_jitter(w=0.1, h=0))+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=0.1, color="black") +
+  stat_summary(fun=base::mean, geom="crossbar", fatten = 3, width = 0.2)+
+  labs(y="CFU/mL at 24 hours")+
+  scale_color_manual(values = col_hex3)+
+  scale_x_discrete(labels=exprvec)+
+  scale_y_continuous(limits = c(1e8,9e9), breaks = c(1e8,5e8,1e9,5e9,9e9))+
+  theme_bw()+
+  theme(axis.title.x = element_blank(),
+        legend.position = "none",
+        text = element_text(size = 18),
+        axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+```
+
+```{r, fig.height=6}
+cfu_stat_plot2
+```
+
+<br>
+
+```{r}
+ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat.png", device = "png",width = unit(5,"cm"), height = unit(6,"cm"), dpi = 300)
+
+ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat.svg", device = "svg",width = unit(5,"cm"), height = unit(6,"cm"), dpi = 300)
+```
+
+<br>
+
+# Competition assay
+
+## Prepare data
+
+<br>
+
+Read csv file
+```{r}
+#data of all
+fa <-  read.csv("./competition_assay/fitness_assay_new_G1_all.csv")
+```
+
+
+<br>
+
+Clean dataframe
+```{r}
+lac <- fa %>%
+  subset(Hours==24) %>%
+  subset(Lac_marker=="Lac Ancestor" | Lac_marker=="delPf5")
+lac$Selection_rate_cheater <- lac$Selection_rate_comp
+lac$Cheater_proportion_i <- lac$Comp_proportion_i
+lac$Cheater <- "PA14 WT"
+
+g <- fa %>%
+  subset(Hours==24) %>%
+  subset(Lac_marker=="new G1")
+g$Selection_rate_cheater <- g$Selection_rate_lac
+g$Cheater_proportion_i <- g$Lac_proportion_i
+g$Cheater <- "PA14*full/mini"
+
+b <- fa %>%
+  subset(Hours==24) %>%
+  subset(Lac_marker=="B1")
+b$Selection_rate_cheater <- b$Selection_rate_lac
+b$Cheater_proportion_i <- b$Lac_proportion_i
+b$Cheater <- "PA14*full"
+
+glac <- rbind(g,b,lac)
+glac$Selection_rate_cheater <- as.numeric(glac$Selection_rate_cheater)
+```
+
+<br>
+
+## Figure
+
+<br>
+
+### net fitness
+
+```{r}
+glac2 <- glac %>%
+  mutate(Competitor = ifelse(Competitor == "PA14 Ancestor", "PA14 WT", Competitor))
+glac2[which(glac2$Lac_marker == "delPf5"), "Cheater"] <- "PA14 delPf5"
+
+glac2$Cheater = factor(glac2$Cheater, levels=c("PA14 WT", "PA14*full", "PA14*full/mini", "PA14 delPf5"), ordered = TRUE, labels = c(expression(paste("PA14 WT")), expression(paste("PA14*full")), expression(paste("PA14*full/mini")), expression(paste("PA14",Delta,"Pf5"))))
+
+glac2$Competitor = factor(glac2$Competitor, levels=c("PA14 WT", "PA14 pilA"), ordered = TRUE, labels = c(expression(paste("PA14 WT")), expression(paste("PA14",Delta,italic("pilA")))))
+
+
+all_comp2 <- ggplot(glac2, aes(x = Cheater_proportion_i, y = Selection_rate_cheater, fill = Pop_CFU_f, group=Cheater))+
+  geom_smooth(method=lm, formula = y ~ x, color="black", fill="grey")+
+  geom_point(color="black",size=3, shape=21)+
+  scale_fill_gradientn(colours = viridis(256, option = "H"),
+                       trans="log",
+                       breaks=c(1e7,1e8,1e9,1e10),
+                       limits=c(1e7,1e10))+
+  # facet_grid(Competitor~Cheater, scales = "free_x", labeller = label_parsed)+
+  labs(x="Competitor initial proportion", y="Net fitness advantage of competitor", fill="Final Population\n(CFU/mL)")+
+  geom_hline(yintercept = 0)+
+  theme_bw()+
+  scale_x_continuous(limits = c(0,1))+
+  scale_y_continuous(limits = c(-5,11), breaks = c(-5,0,5,10))+
+  #scale_x_continuous(limits = c(0.001,1), trans = "log", breaks = c(0, 0.001, 0.01, 0.1, 1))+
+  theme(text = element_text(size = 24),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        legend.position = "right",
+        panel.spacing.x = unit(8, "mm"),
+        legend.title = element_text(size=18),
+        legend.text = element_text(size=16))
+```
+
+```{r, fig.width=10, fig.height=8}
+all_comp3 <- all_comp2 + facet_grid2(Competitor~Cheater, scales = "free_x", labeller = label_parsed, render_empty = FALSE)
+all_comp3
+```
+
+
+```{r}
+ggsave(plot=all_comp3, "./figures/net_fitness.png", height = 6, width = 16, device = "png", dpi = 300)
+ggsave(plot=all_comp3, "./figures/net_fitness.svg", height = 6, width = 16, device = "png", dpi = 300)
+```
+
+
+<br>
+
+### timepoints with WT
+
+Used washed pellet
+```{r}
+tp <- read.csv("./competition_assay/fitness_assay_newG1_timepoint_wash_pellet.csv")
+```
+
+```{r}
+#subset and wide to long
+all_tp_long <- tp %>%
+  pivot_longer(cols =c(Lac_CFU, Comp_CFU), names_to = "CFU_strain", values_to = "CFU")
+
+all_tp_long$strain <- NA
+for (i in 1:nrow(all_tp_long)) {
+  s_i <- all_tp_long$CFU_strain[i]
+  if(s_i == "Lac_CFU"){
+    all_tp_long$strain[i] <- all_tp_long$Lac_marker[i]
+  }
+  if(s_i == "Comp_CFU"){
+    all_tp_long$strain[i] <- all_tp_long$Competitor[i]
+  }
+}
+
+all_tp_long$id <- paste(all_tp_long$Competitions, all_tp_long$Frequency, all_tp_long$Replicate, all_tp_long$strain, sep = "_")
+
+all_tp_long$Replicate <- as.factor(all_tp_long$Replicate)
+
+all_tp_long$label <- NA
+all_tp_long[which(all_tp_long$strain=="PA14 Ancestor"),"label"] <- "PA14 WT"
+all_tp_long[which(all_tp_long$strain=="Lac Ancestor"),"label"] <- "PA14 WT "
+all_tp_long[which(all_tp_long$strain=="B1"),"label"] <- "PA14*full"
+all_tp_long[which(all_tp_long$strain=="new G1"),"label"] <- "PA14*full/mini"
+
+all_tp_long$Frequency_f = factor(all_tp_long$Frequency, levels=c("1:9", "9:1"))
+levels(all_tp_long$Frequency_f) = c("1:9"=expression(paste(italic("pf5r"), " rare")), "9:1"=expression(paste(italic("pf5r"), " 1:1")))
+
+all_tp_long$Lac_marker_f = factor(all_tp_long$Lac_marker, levels=c("Lac Ancestor", "B1", "new G1"))
+levels(all_tp_long$Lac_marker_f) = c("Lac Ancestor"=expression(paste("PA14 WT")), "B1"=expression(paste("PA14*full")), "new G1"=expression(paste("PA14*full/mini")))
+```
+
+Average
+
+Plot without ancestor control
+```{r, fig.width=10}
+all_tp_long_no_anc <- all_tp_long %>%
+  filter(Lac_marker != "Lac Ancestor")
+
+tp_plot_avg_no_anc <- ggplot(all_tp_long_no_anc, aes(x=Hour, y=CFU, group=label, color=label)) +
+  geom_point(alpha = 0.3, size =2, show.legend = FALSE)+
+  stat_summary(fun=mean, geom = "line")+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=1) +
+  facet_grid(Frequency_f~Lac_marker_f, labeller=label_parsed) +
+  scale_color_manual(values = col_hex2, drop=F)+
+  scale_y_continuous(trans = 'log10')+
+  labs(y="CFU/mL", x="Time (h)", color="Strains")+
+  theme_bw()+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
+  theme(text = element_text(size = 20),
+      legend.text = element_text(hjust=0,size=16),
+      axis.text.x = element_text(size = 16),
+      axis.text.y = element_text(size = 16),
+      legend.position = "right",
+      legend.title = element_text(size=18))
+tp_plot_avg_no_anc
+```
+
+```{r}
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.png", units = "cm", height = 15, width = 24, device = "png", dpi = 300) 
+
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.svg", units = "cm", height = 15, width = 24, device = "svg", dpi = 300)
+```
+
+<br>
+
+
+
+### timepoints with pilA
+
+```{r}
+pilA_tp <-  read.csv("./competition_assay/fitness_assay_pilA_timepoint.csv")
+```
+
+```{r}
+#subset and wide to long
+pilA_tp_long <- pilA_tp %>%
+  filter(Frequency == "1:9" | Frequency == "9:1") %>%
+  pivot_longer(cols =c(Lac_CFU, Comp_CFU), names_to = "CFU_strain", values_to = "CFU")
+
+pilA_tp_long$strain <- NA
+for (i in 1:nrow(pilA_tp_long)) {
+  s_i <- pilA_tp_long$CFU_strain[i]
+  if(s_i == "Lac_CFU"){
+    pilA_tp_long$strain[i] <- pilA_tp_long$Lac_marker[i]
+  }
+  if(s_i == "Comp_CFU"){
+    pilA_tp_long$strain[i] <- pilA_tp_long$Competitor[i]
+  }
+}
+
+pilA_tp_long$id <- paste(pilA_tp_long$Competitions, pilA_tp_long$Frequency, pilA_tp_long$Replicate, pilA_tp_long$strain, sep = "_")
+
+pilA_tp_long$Replicate <- as.factor(pilA_tp_long$Replicate)
+
+pilA_tp_long$label = factor(pilA_tp_long$strain, levels=c("Lac Ancestor", "PA14 pilA", "B1", "new G1"))
+exprvec <- c("PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), "PA14*full", "PA14*full/mini")
+
+pilA_tp_long$Frequency_f = factor(pilA_tp_long$Frequency, levels=c("1:9", "9:1"))
+levels(pilA_tp_long$Frequency_f) = c("1:9"=expression(paste(italic("pf5r"), " rare")), "9:1"=expression(paste(italic("pf5r"), " 1:1")))
+
+pilA_tp_long$Lac_marker_f = factor(pilA_tp_long$Lac_marker, levels=c("Lac Ancestor", "B1", "new G1"))
+levels(pilA_tp_long$Lac_marker_f) = c("Lac Ancestor"=expression(paste("PA14 WT")), "B1"=expression(paste("PA14*full")), "new G1"=expression(paste("PA14*full/mini")))
+```
+
+
+plot
+```{r, fig.width=10}
+pilA_tp_plot_avg <- ggplot(pilA_tp_long, aes(x=Hour, y=CFU, group=label, color=label)) +
+  # geom_line()+
+  geom_point(show.legend =FALSE, alpha=0.5, shape=16)+
+  stat_summary(fun=mean, geom = "line")+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=1) +
+  facet_grid(Frequency_f~Lac_marker_f, labeller=label_parsed) +
+  scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
+  scale_y_continuous(trans = 'log10', breaks = c(1e4,1e5,1e6,1e7,1e8,1e9,1e10), limits = c(1e4,1e10))+
+  labs(y="CFU/mL", x="Time (h)", color="Strains")+
+  theme_bw()+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
+  theme(text = element_text(size = 20),
+        legend.text = element_text(hjust=0,size=16),
+        axis.text.x = element_text(size = 16),
+        axis.text.y = element_text(size = 16),
+        legend.position = "right",
+        # panel.spacing.x = unit(8, "mm"),
+        legend.title = element_text(size=18))
+
+pilA_tp_plot_avg
+```
+
+
+Save plot
+```{r}
+ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA.png", units = "cm", height = 15, width = 30, device = "png", dpi=300)
+
+ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA.svg", units = "cm", height = 15, width = 30, device = "svg", dpi=300)
+```
+
+<br>
+
+# Twitch
+
+## Prepare data
+
+```{r}
+twitch <- read.csv("./twitch_assay/fitness_assay_newG1_twitch.csv") %>%
+  filter(Freq == "1:9" | Freq == "9:1") %>%
+  filter(Competition == "PA14 Ancestor vs new G1" | Competition == "PA14 Ancestor vs B1")
+
+twitch$Time_h <- factor(twitch$Time_h)
+
+twitch$strain_l <- NA
+twitch[which(twitch$Strain == "PA14 Ancestor"), "strain_l"] <- "PA14 WT"
+twitch[which(twitch$Strain == "B1"), "strain_l"] <- "PA14*full"
+twitch[which(twitch$Strain == "new G1"), "strain_l"] <- "PA14*full/mini"
+
+twitch$comp_f = factor(twitch$Competition, levels=c("PA14 Ancestor vs B1", "PA14 Ancestor vs new G1"))
+levels(twitch$comp_f) = c("PA14 Ancestor vs new G1"=expression(paste("PA14*full vs PA14 WT")), "PA14 Ancestor vs B1"=expression(paste("PA14*full/mini vs PA14 WT")))
+```
+
+
+## Figures
+
+```{r}
+twitch_plot <- ggplot(twitch, aes(x=Time_h, y=Twitch_mm, color=strain_l, fill=strain_l, group=strain_l))+
+  geom_point(alpha=0.25, position=position_dodge(w = 0.75))+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width = 0.2, position = position_dodge(w = 0.75), show.legend = FALSE)+
+  stat_summary(fun=base::mean, geom="crossbar", fatten = 1.5, width = 0.3, position = position_dodge(w = 0.75), show.legend = FALSE)+
+  facet_grid(.~comp_f, labeller=label_parsed)+
+  scale_color_manual(values = col_hex2)+
+  scale_fill_manual(values = col_hex2)+
+  labs(x="Timepoint (h)", y="Twitching distance (mm)", color="Strains")+
+  scale_y_continuous(limits = c(0,11), breaks = seq(0,11,1))+
+  guides(fill="none", colour = guide_legend(override.aes = list(alpha=1)))+
+  theme_bw()+
+  theme(panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank())
+twitch_plot
+```
+
+```{r}
+ggsave(plot = twitch_plot, "./figures/twitch.png", units = "cm", height = 10, width = 15, device = "png", dpi = 300)
+ggsave(plot = twitch_plot, "./figures/twitch.svg", units = "cm", height = 10, width = 15, device = "svg", dpi = 300)
+```

@@ -1,0 +1,2 @@
+
+[fitness_assay_newG1_twitch.csv](fitness_assay_newG1_twitch.csv) contains the raw data for the twitch assay. See [the Rmarkdown file](../pf_cheater_phage_figures.Rmd) for details on figure generation.
