@@ -664,11 +664,17 @@ ggsave("./figures/growth_curve_OD600.svg", plot = pilA_gc_plot, device = "svg",w
 <br>
 
 ```{r}
+#create dummy data to set individual y-axis limits for facet_wrap
+od600_range <- c(0, 1.5) #range(gc_long[which(gc_long$variable == "Carrying~Capacity~(Final~OD[600])"), "value"])
+auc_range <- c(5,15) #range(gc_long[which(gc_long$variable == "Area~Under~the~Curve~(AUC)"), "value"])
+dummy <- data.frame(label = rep("PA14 pilA",4), value = c(od600_range, auc_range), variable = rep(unique(gc_long$variable), each=2), stringsAsFactors=FALSE)
+
 #Dot plot of carrying capacity, growth rate, area under the curve (auc_e)
 gc_stat2 <- ggplot(gc_long, aes(x = label, y = value,fill=label,color=label)) +
   geom_point(size=3, alpha=0.3, position=position_jitter(w=0.1, h=0))+
   scale_x_discrete(labels=exprvec)+
   facet_wrap(~variable, scales = "free",strip.position = "left",labeller = label_parsed)+
+  geom_blank(data=dummy)+ #dummy data to set y axis limits
   scale_fill_manual(values = col_hex, drop=F, labels=exprvec)+
   scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
