@@ -428,7 +428,7 @@ all_stat[which(all_stat$id == "delPf5"),"label"] <- "PA14ΔPf5"
 
 Plot
 ```{r, fig.width=6, fig.height=4}
-all_stat_plot <- ggplot(all_stat, aes(x=label, y=mean, group=region, color=str_wrap(region,10), label=mean_round))+
+all_stat_plot <- ggplot(all_stat, aes(x=label, y=mean, group=region, color=region, label=mean_round))+
   geom_point(position = position_dodge(w = 0.75))+
   geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(w = 0.75))+
   geom_text(position=position_dodge(0.75), vjust=c(-2,-2,-2,-2,-2,-2,-2,-6,-2,-2), show.legend = FALSE, size=3)+
@@ -437,7 +437,9 @@ all_stat_plot <- ggplot(all_stat, aes(x=label, y=mean, group=region, color=str_w
   theme_bw()+
   theme(panel.grid.major.x = element_blank(),
         panel.grid.minor.x = element_blank(),
-        panel.grid.minor.y = element_blank())
+        panel.grid.minor.y = element_blank(),
+        legend.position = "top",
+        legend.title = element_blank())
 all_stat_plot
 ```
 
