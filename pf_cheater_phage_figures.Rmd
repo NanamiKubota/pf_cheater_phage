@@ -520,7 +520,7 @@ pf5_pop5$locus_text <- pf5_pop5$Locus.Tag
 pf5_pop5[which(pf5_pop5$id != "delPf5"),"locus_text"] <- NA
 
 pop5.plot <- ggplot() +
-  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, fill = "red")+
   #geom_hline(yintercept=r, alpha=0.5)+
   geom_gene_arrow(data=pf5_pop5, aes(xmin = new_start, xmax = new_end, y = r,fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
   facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
@@ -644,7 +644,12 @@ pilA_gc_plot <- ggplot(pilA_gc, aes(x=Time_convert, y=value, group=strain, color
   labs(color = "Strains", x="Time (h)", y=expression(OD[600]))+
   theme_bw()+
   guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
-  theme(legend.position = "top", text = element_text(size = 18))
+  theme(
+    legend.position = "top", 
+    text = element_text(size = 18),
+    legend.title = element_blank(),
+    axis.text = element_text(size=18),
+    axis.title = element_text(size=18))
 ```
 
 
@@ -681,16 +686,19 @@ gc_stat2 <- ggplot(gc_long, aes(x = label, y = value,fill=label,color=label)) +
   scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=0.1, color="black") +
-  stat_summary(fun=base::mean, geom="crossbar", fatten=3, width=0.2)+
+               geom="errorbar", width=0.5, color="black", linewidth=1) +
+  stat_summary(fun=base::mean, geom="crossbar", fatten=3, width=0.3)+
   theme_bw()+
-  theme(axis.title.y = element_blank(),
-        axis.title.x = element_blank(),
-        axis.text.x = element_text(angle = 60, vjust = 1, hjust=1),
-        strip.background = element_blank(),
-        strip.placement = "outside",
-        legend.position = "none",
-        text = element_text(size = 18))
+  theme(
+    axis.title.y = element_blank(),
+    axis.title.x = element_blank(),
+    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1,size=18),
+    axis.text.y = element_text(size=18),
+    strip.background = element_blank(),
+    strip.placement = "outside",
+    legend.position = "none",
+    text = element_text(size = 18),
+    strip.text = element_text(size=18))
 gc_stat2
 ```
 
@@ -792,7 +800,15 @@ pilA_anc_sup_avg_plot <- ggplot(cfu_pilA_anc, aes(x=hour, y=CFU.mL, group=abbrev
                geom="errorbar", width=0.8) +
   labs(x="Hours", y="CFU/mL", color="Supernatant")+
   theme_bw()+
-  guides(colour = guide_legend(override.aes = list(linewidth = 3)))
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
+  theme(
+    axis.title.y = element_text(size=16),
+    axis.title.x = element_text(size=16),
+    axis.text = element_text(size=16),
+    text = element_text(size = 16),
+    strip.text = element_text(size=16),
+    legend.text = element_text(size=16)
+  )
 pilA_anc_sup_avg_plot
 ```
 
@@ -954,16 +970,17 @@ all_comp2 <- ggplot(glac2, aes(x = Cheater_proportion_i, y = Selection_rate_chea
   labs(x="Competitor initial proportion", y="Net fitness advantage of competitor", fill="Final Population\n(CFU/mL)")+
   geom_hline(yintercept = 0)+
   theme_bw()+
-  scale_x_continuous(limits = c(0,1))+
+  scale_x_continuous(limits = c(0,1), breaks = c(0,0.5,1))+
   scale_y_continuous(limits = c(-5,11), breaks = c(-5,0,5,10))+
   #scale_x_continuous(limits = c(0.001,1), trans = "log", breaks = c(0, 0.001, 0.01, 0.1, 1))+
-  theme(text = element_text(size = 24),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
+  theme(text = element_text(size = 18),
+        axis.text.x = element_text(size = 18),
+        axis.text.y = element_text(size = 18),
         legend.position = "right",
         panel.spacing.x = unit(8, "mm"),
         legend.title = element_text(size=18),
-        legend.text = element_text(size=16))
+        legend.text = element_text(size=18),
+        panel.grid.minor = element_blank())
 ```
 
 ```{r, fig.width=10, fig.height=8}
@@ -973,8 +990,8 @@ all_comp3
 
 
 ```{r}
-ggsave(plot=all_comp3, "./figures/net_fitness.png", height = 6, width = 16, device = "png", dpi = 300)
-ggsave(plot=all_comp3, "./figures/net_fitness.svg", height = 6, width = 16, device = "png", dpi = 300)
+ggsave(plot=all_comp3, "./figures/net_fitness.png", height = 5, width = 14, device = "png", dpi = 300)
+ggsave(plot=all_comp3, "./figures/net_fitness.svg", height = 5, width = 14, device = "png", dpi = 300)
 ```
 
 
@@ -1040,18 +1057,18 @@ tp_plot_avg_no_anc <- ggplot(all_tp_long_no_anc, aes(x=Hour, y=CFU, group=label,
   theme_bw()+
   guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
   theme(text = element_text(size = 20),
-      legend.text = element_text(hjust=0,size=16),
-      axis.text.x = element_text(size = 16),
-      axis.text.y = element_text(size = 16),
-      legend.position = "right",
-      legend.title = element_text(size=18))
+      legend.text = element_text(hjust=0,size=18),
+      axis.text.x = element_text(size = 18),
+      axis.text.y = element_text(size = 18),
+      legend.position = "top",
+      legend.title = element_blank())
 tp_plot_avg_no_anc
 ```
 
 ```{r}
-ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.png", units = "cm", height = 15, width = 24, device = "png", dpi = 300) 
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.png", units = "cm", height = 18, width = 24, device = "png", dpi = 300) 
 
-ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.svg", units = "cm", height = 15, width = 24, device = "svg", dpi = 300)
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.svg", units = "cm", height = 18, width = 24, device = "svg", dpi = 300)
 ```
 
 <br>
@@ -1157,11 +1174,12 @@ levels(twitch$comp_f) = c("PA14 Ancestor vs new G1"=expression(paste("PA14*full 
 
 ```{r}
 twitch_plot <- ggplot(twitch, aes(x=Time_h, y=Twitch_mm, color=strain_l, fill=strain_l, group=strain_l))+
-  geom_point(alpha=0.25, position=position_dodge(w = 0.75))+
+  geom_point(alpha=0.25, position=position_dodge(w = 0.5), size=3)+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width = 0.2, position = position_dodge(w = 0.75), show.legend = FALSE)+
-  stat_summary(fun=base::mean, geom="crossbar", fatten = 1.5, width = 0.3, position = position_dodge(w = 0.75), show.legend = FALSE)+
+               geom="errorbar", width = 0.4, position = position_dodge(w = 0.5),
+               show.legend = FALSE, linewidth=1)+
+  stat_summary(fun=base::mean, geom="crossbar", fatten = 4, width = 0.3, position = position_dodge(w = 0.5), show.legend = FALSE)+
   facet_grid(.~comp_f, labeller=label_parsed)+
   scale_color_manual(values = col_hex2)+
   scale_fill_manual(values = col_hex2)+
@@ -1169,11 +1187,21 @@ twitch_plot <- ggplot(twitch, aes(x=Time_h, y=Twitch_mm, color=strain_l, fill=st
   scale_y_continuous(limits = c(0,11), breaks = seq(0,11,1))+
   guides(fill="none", colour = guide_legend(override.aes = list(alpha=1)))+
   theme_bw()+
-  theme(panel.grid.major.x = element_blank(), panel.grid.minor.x = element_blank())
+  theme(
+    panel.grid.major.x = element_blank(), 
+    panel.grid.minor.x = element_blank(),
+    axis.title.y = element_text(size=16),
+    axis.title.x = element_text(size=16),
+    axis.text = element_text(size=16),
+    text = element_text(size = 16),
+    strip.text = element_text(size=16),
+    legend.text = element_text(size=16),
+    legend.position = "right"
+    )
 twitch_plot
 ```
 
 ```{r}
-ggsave(plot = twitch_plot, "./figures/twitch.png", units = "cm", height = 10, width = 15, device = "png", dpi = 300)
-ggsave(plot = twitch_plot, "./figures/twitch.svg", units = "cm", height = 10, width = 15, device = "svg", dpi = 300)
+ggsave(plot = twitch_plot, "./figures/twitch.png", units = "cm", height = 15, width = 25, device = "png", dpi = 300)
+ggsave(plot = twitch_plot, "./figures/twitch.svg", units = "cm", height = 15, width = 25, device = "svg", dpi = 300)
 ```
