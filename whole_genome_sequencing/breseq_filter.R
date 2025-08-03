@@ -105,9 +105,9 @@ mini_bound <- breseq_output_rm_anc %>%
     strain = case_when(
       breseq == "Pf5_cap_del_1_PA14_mini" ~ "PA14*mini",
       breseq == "new_G1_PA14_full_mini" ~ "PA14*full/mini 1",
-      breseq == "old_G1_PA14_full_mini_2" ~ "PA14*full/mini 2",
-      breseq == "morA_pf5r_SRR17205266" ~ "PA14*full/mini 3",
-      breseq == "lasR_pf5r_SRR17205267" ~ "PA14*full/mini 4"
+      breseq == "old_G1_PA14_full_mini_2" ~ "PA14*full/mini 4",
+      breseq == "morA_pf5r_SRR17205266" ~ "PA14*full/mini 2",
+      breseq == "lasR_pf5r_SRR17205267" ~ "PA14*full/mini 3"
     ),
     color = case_when(
       breseq == "Pf5_cap_del_1_PA14_mini" ~ "orange",
