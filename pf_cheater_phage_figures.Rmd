@@ -34,6 +34,11 @@ library(colorspace) #needed for darkening text color
 library(viridis) #color gradient
 library(ggstar) #adds star to ggplot (for pf5r mutants)
 library(ggh4x)
+library(ggnewscale) #add multiple scale colors
+library(ggpubr) #add significance to plot
+library(rstatix)
+library(ggtext) #for bold/italics
+library(ggpmisc)
 ```
 
 Color table
@@ -92,14 +97,19 @@ pop5$id <- "pop5"
 
 ### calculate average
 
-Pf circularization in new reference genome: 4345098-4355762
+Pf circularization in new reference genome (as called by breseq): 4345098 - 4355762
+Pf attL in new reference genome (10 bp): 4345098 - 4345107
+Pf attR in new reference genome (10 bp): 4355763 - 4355772
+Pf loss in new reference genome (as called by breseq): 4345107 - 4355773
 
-Pf loss in new reference genome: 4345107-4355773
+Pf5 phage region (including attL and attR): 4345098-4355772
 
-Calculate average read depth 1kb upstream of Pf5 in all strains
+Calculate average read depth 1kb upstream of Pf5 in all strains (do not include att sites)
+- upstream of Pf5 region: 4344097 - 4345097
+- downstream of Pf5 region: 4355773 - 4356773
 
 ```{r}
-up_rd <- rd[which(rd$end < 4345100 & rd$end >= 4344100),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+up_rd <- rd[which(rd$end < 4345097 & rd$end >= 4344097),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
 
 up_rd_avg <- up_rd %>%
   group_by(id) %>%
@@ -108,7 +118,7 @@ up_rd_avg <- up_rd %>%
 
 Calculate average read depth 1kb downstream of Pf5 in all strains
 ```{r}
-down_rd <- rd[which(rd$start >= 4355780 & rd$start < 4356780),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+down_rd <- rd[which(rd$start >= 4355773 & rd$start < 4356773),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
 down_rd_avg <- down_rd %>%
   group_by(id) %>%
   summarise_at(vars(read_depth), list(down_avg = mean))
@@ -130,7 +140,7 @@ Do for pop5
 Calculate average read depth 1kb upstream of Pf5 in all strains
 
 ```{r}
-up_pop5 <- pop5[which(pop5$end < 4345100 & pop5$end >= 4344100),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+up_pop5 <- pop5[which(pop5$end < 4345097 & pop5$end >= 4344097),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
 up_pop5_avg <- up_pop5 %>%
   group_by(id) %>%
   summarise_at(vars(read_depth), list(up_avg = mean))
@@ -138,7 +148,7 @@ up_pop5_avg <- up_pop5 %>%
 
 Calculate average read depth 1kb downstream of Pf5 in all strains
 ```{r}
-down_pop5 <- pop5[which(pop5$start >= 4355780 & pop5$start < 4356780),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
+down_pop5 <- pop5[which(pop5$start >= 4355773 & pop5$start < 4356773),] #subset 1kb for all strain; 100 measurements of 10bp windows per strain
 down_pop5_avg <- down_pop5 %>%
   group_by(id) %>%
   summarise_at(vars(read_depth), list(down_avg = mean))
@@ -172,7 +182,7 @@ pf5$label <- pf5$Product.Name #make a new column that is identical to the produc
 pf5$label[which(pf5$Product.Name == "C32 tRNA thiolase")] <- "tRNA"
 pf5$label[which(pf5$Product.Name == "bacteriophage integrase")] <- "integrase"
 pf5$label[which(pf5$Locus.Tag == "PA14_48890")] <- "replication initiator"
-pf5$label[which(pf5$Locus.Tag == "PA14_48910")] <- "Zot"
+pf5$label[which(pf5$Locus.Tag == "PA14_48910")] <- "zot"
 pf5$label[which(pf5$Locus.Tag == "PA14_48990")] <- "pflM"
 pf5$label[which(pf5$Product.Name == "bacteriophage protein")] <- "capsid"
 pf5$label[which(pf5$Product.Name == "coat protein A of bacteriophage Pf1")] <- "capsid"
@@ -210,21 +220,21 @@ pf5_pop5 <- pf5
 
 Multiply annotation by 5 to get individual gene maps and add id
 ```{r}
-id_c <- c("wt", "f", "fm", "m", "delPf5")
-pf5$id <- "wt"
-pf5_5 <- pf5
+id_c <- c("annot", "wt", "f", "fm", "m", "delPf5")
+pf5$id <- "annot"
+pf5_6 <- pf5
 for (i in 2:length(id_c)) {
   temp <- pf5
   temp$id <- id_c[i]
-  pf5_5 <- rbind(pf5_5, temp)
+  pf5_6 <- rbind(pf5_6, temp)
 }
 
 # factor to change order
-pf5_5$id <- factor(pf5_5$id, levels=c("wt", "f", "fm", "m", "delPf5"))
+pf5_6$id <- factor(pf5_6$id, levels=c("annot", "wt", "f", "fm", "m", "delPf5"))
 
 #remove labels from all but last one
-pf5_5$label_text <- pf5_5$label
-pf5_5[which(pf5_5$id != "delPf5"),"label_text"] <- NA
+pf5_6$label_text <- pf5_6$label
+pf5_6[which(pf5_6$id != "annot"),"label_text"] <- NA
 ```
 
 <br>
@@ -233,8 +243,8 @@ pf5_5[which(pf5_5$id != "delPf5"),"label_text"] <- NA
 
 ```{r}
 #subset coverage
-range_min <- min(pf5_5$new_end) #find position of left side of genome 
-range_max <- max(pf5_5$new_end) #find position of the right side of genome
+range_min <- min(pf5_6$new_end) #find position of left side of genome 
+range_max <- max(pf5_6$new_end) #find position of the right side of genome
 rd.sub <- rd[which(rd$start>=range_min & rd$end<=range_max),]
 ```
 
@@ -276,12 +286,31 @@ for (i in 1:nrow(pop5.sub)) {
 
 ```{r}
 #center annotation map
-pf5_5$r <- rep(c(250, 1500, 4000, 75, 60), each=18)
-r <- c(250, 1500, 4000, 75, 60)
+pf5_6$r <- rep(c(0.75, 250, 1500, 20000, 75, 60), each=18)
+r <- c(0.75, 250, 1500, 20000, 75, 60)
+
 
 #for normalized maps
-pf5_5$rnorm <- rep(c(1.5, 12.5, 100, 0.75, 0.75), each=18)
-rnorm <- c(1.5, 12.5, 100, 0.75, 0.75)
+pf5_6$rnorm <- rep(c(0.75, 1.5, 12.5, 100, 0.75, 0.75), each=18)
+rnorm <- c(0.75, 1.5, 12.5, 100, 0.75, 0.75)
+
+#y limits
+r_y_lim <- list(
+  scale_y_continuous(limits = c(0, 2)),
+  scale_y_continuous(limits = c(0, 600)),
+  scale_y_continuous(labels=comma, limits = c(0, 3100)),
+  scale_y_continuous(labels=comma, limits = c(0, 80000)),
+  scale_y_continuous(limits = c(0, 150)),
+  scale_y_continuous(limits = c(0, 150))
+)
+r_norm_y_lim <- list(
+  scale_y_continuous(limits = c(0, 2)),
+  scale_y_continuous(limits = c(0, 3.5)),
+  scale_y_continuous(limits = c(0, 30)),
+  scale_y_continuous(limits = c(0, 300)),
+  scale_y_continuous(limits = c(0, 1.5)),
+  scale_y_continuous(limits = c(0, 1.5))
+)
 ```
 
 <br>
@@ -290,12 +319,29 @@ rnorm <- c(1.5, 12.5, 100, 0.75, 0.75)
 
 Color scheme
 ```{r}
-pf5_5$label <- factor(pf5_5$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "Zot", "pflM"))
-pf_colors <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3","#E41A1C"), levels(pf5_5$label))
+pf5_6$label <- factor(pf5_6$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "zot", "pflM"))
+pf_colors <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "grey40","#E41A1C"), levels(pf5_6$label))
 
-pf5_pop5$label <- factor(pf5_pop5$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "Zot", "pflM"))
-pf_colors_pop5 <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "#B3B3B3","#E41A1C"), levels(pf5_pop5$label))
+pf5_pop5$label <- factor(pf5_pop5$label, levels = c("capsid", "integrase", "pf5r", "pfsE", "replication initiator", "tRNA", "xisF5", "zot", "pflM"))
+pf_colors_pop5 <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D854", "#FFD92F", "#E5C494", "grey40","#E41A1C"), levels(pf5_pop5$label))
 ```
+
+<br>
+
+Remove annotation labels except for first facet
+```{r}
+pf5_6$locus_text <- pf5_6$Locus.Tag
+pf5_6[which(pf5_6$id != "annot"),"locus_text"] <- NA
+```
+
+<br>
+
+Add star for pf5r mutation
+```{r}
+#star symbol for pf5r mutation
+pf5r_mut <- data.frame(x=rep(4353504, 3), r=c(1500, 20000, 75), rnorm=c(12.5, 100, 0.75), id=c("f", "fm", "m"))
+```
+
 
 <br>
 
@@ -305,48 +351,43 @@ pf_colors_pop5 <- setNames(c("#66C2A5", "#FC8D62", "#8DA0CB", "#E78AC3", "#A6D85
 
 ### Gene map with read depth
 
+#### raw
+
 <br>
 
-Fix label position
+Plot
 ```{r}
-#remove locus_tag from all but last one
-pf5_5$locus_text <- pf5_5$Locus.Tag
-pf5_5[which(pf5_5$id != "delPf5"),"locus_text"] <- NA
-
-#move flanking genes locus tag to separate column in order to move them down below gene map for readability
-pf5_5$locus_flank_text <- pf5_5$locus_text
-pf5_5[which(!(pf5_5$Locus.Tag %in% c("PA14_49040", "PA14_48870"))),"locus_flank_text"] <- NA
-pf5_5[which((pf5_5$Locus.Tag %in% c("PA14_49040", "PA14_48870"))),"locus_text"] <- NA
-
-#move label_position for tRNA
-pf5_5[which(pf5_5$label_text == "tRNA"),"label_position"] <- 4344669 +350
-pf5_5[which(pf5_5$locus_flank_text == "PA14_49040"),"label_position"] <- 4356146 +250
-
-#star symbol for pf5r mutation
-pf5r_mut <- data.frame(x=rep(4353504, 3), y=c(1500, 4000, 75), rnorm=c(12.5, 100, 0.75), id=c("f", "fm", "m"))
-
-#plot
+pf5_annot <- pf5_6 %>% filter(id == "annot")
+pf5_nonannot <- pf5_6 %>% filter(id != "annot")
 rd_plot <- ggplot() +
-  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
-  geom_gene_arrow(data=pf5_5, aes(xmin = new_start, xmax = new_end, y = rnorm,fill = label),arrowhead_height = unit(1, "cm"),arrowhead_width = unit(0.5, "cm"),arrow_body_height = unit(1,"cm"))+
-  geom_star(data=pf5r_mut, aes(x=x, y=rnorm), starshape=1, fill="goldenrod", size=5, starstroke=1)+
-  facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
-  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "white")+
+  # geom_rect(data=pf5_nonannot, aes(xmin=new_start, xmax = new_end, ymin = 0, ymax = Inf, fill = label), alpha = 0.4) +
+  # scale_fill_manual(values = lighten(pf_colors, 0.4), na.value = "grey80", guide = "none")+
+  # new_scale_fill() +
+  geom_gene_arrow(data=pf5_6, aes(xmin = new_start, xmax = new_end, y = r,fill = label),arrowhead_height = unit(8, "mm"),arrowhead_width = unit(4, "mm"),arrow_body_height = unit(8,"mm"))+
+  facet_grid(forcats::fct_relevel(id)~., scales = "free_y")+
+  facetted_pos_scales(y = r_y_lim) +
+  force_panelsizes(rows = c(1.5, 1,1,1,1, 1))+
+  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "grey80")+
   scale_color_manual(values = darken(pf_colors, 0.2))+
   theme_light()+
-  labs(y = "Phage read depth relative to bacterial chromosome")+
+  labs(y = "Read depth")+
   theme(axis.title.x = element_blank(), 
-        axis.title.y = element_text(size=30),
+        axis.title.y = element_text(size=30, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size=24),
         legend.position = "none", 
         strip.background = element_blank(), 
         strip.text.x = element_blank(), 
-        text = element_text(size = 24))+
+        # text = element_text(size = 24),
+        panel.margin.y=unit(1,"lines"))+
   scale_x_continuous(labels=comma, limits = c(4344257,4356442))+
-  geom_text(data=pf5_5, aes(x=label_position, y=0.75*rnorm, label=stringr::str_wrap(label_text,10), color=label), angle = 45, nudge_x = 20, nudge_y = 0, hjust = 1, size=7) + 
-  geom_text(data=pf5_5, aes(x=label_position, y=1.2*rnorm, label=stringr::str_wrap(locus_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = 0, hjust = 0, size=5) +
-  geom_text(data=pf5_5, aes(x=label_position, y=0.75*rnorm, label=stringr::str_wrap(locus_flank_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = -250, hjust = 1, size=5) +
-  geom_line(data=rd.sub, aes(x=start,y=norm), alpha=0.4)+
-  geom_area(data=rd.sub, aes(x=start,y=norm),alpha = 0.1, position = 'identity')
+  # geom_text(data=pf5_6, aes(x=label_position, y=rnorm, label=stringr::str_wrap(locus_flank_text,10), color=label), angle = 45, nudge_y = 0.1, nudge_x = -250, hjust = 1, size=5) +
+  geom_star(data=pf5r_mut, aes(x=x, y=r), starshape=1, fill="goldenrod", size=6, starstroke=1)+
+  geom_line(data=rd.sub, aes(x=start,y=read_depth), color="grey30")+
+  geom_area(data=rd.sub, aes(x=start,y=read_depth), fill="grey80", position = 'identity', alpha=0.4)+
+  geom_vline(xintercept = c(4345098,4355772), alpha=0.5, color = "red", linewidth=1)+
+  geom_text(data=pf5_6, aes(x=label_position, y=r, label=stringr::str_wrap(label_text,10), color=label), angle = 30, nudge_x = 20, nudge_y = -0.15, hjust = 1, vjust=1, size=8, lineheight = 0.75) + 
+  geom_text(data=pf5_6, aes(x=label_position, y=r, label=locus_text, color=label), angle = 90, nudge_y = 0.15, nudge_x = 0, hjust = 0, vjust=0.5, size=6) 
 ```
 
 
@@ -356,10 +397,83 @@ rd_plot
 
 Save
 ```{r, warning=FALSE}
-ggsave("./figures/Pf5_read_depth_normalized.svg", plot = rd_plot, device = "svg",width = unit(16,"cm"), height = unit(16,"cm"), dpi = 300)
+ggsave("./figures/Pf5_read_depth_raw_rev.svg", plot = rd_plot, device = "svg",width = unit(18,"cm"), height = unit(15,"cm"), dpi = 300)
 
-ggsave("./figures/Pf5_read_depth_normalized.png", plot = rd_plot, device = "png",width = unit(16,"cm"), height = unit(16,"cm"), dpi = 300)
+ggsave("./figures/Pf5_read_depth_raw_rev.png", plot = rd_plot, device = "png",width = unit(18,"cm"), height = unit(15,"cm"), dpi = 300)
 ```
+
+
+#### normalized
+<br>
+
+Plot
+```{r}
+pf5_annot <- pf5_6 %>% filter(id == "annot")
+pf5_nonannot <- pf5_6 %>% filter(id != "annot")
+rnorm_plot <- ggplot() +
+  geom_gene_arrow(data=pf5_6, aes(xmin = new_start, xmax = new_end, y = rnorm,fill = label),arrowhead_height = unit(8, "mm"),arrowhead_width = unit(4, "mm"),arrow_body_height = unit(8,"mm"))+
+  facet_grid(forcats::fct_relevel(id)~., scales = "free_y")+
+  facetted_pos_scales(y = r_norm_y_lim) +
+  force_panelsizes(rows = c(1.5, 1,1,1,1, 1))+
+  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "grey80")+
+  scale_color_manual(values = darken(pf_colors, 0.2))+
+  theme_light()+
+  labs(y = "Phage read depth relative to bacterial chromosome")+
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_text(size=30, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size=24),
+        legend.position = "none", 
+        strip.background = element_blank(), 
+        strip.text.x = element_blank(), 
+        # text = element_text(size = 24),
+        panel.margin.y=unit(1,"lines"))+
+  scale_x_continuous(labels=comma, limits = c(4344257,4356442))+
+  geom_star(data=pf5r_mut, aes(x=x, y=rnorm), starshape=1, fill="goldenrod", size=6, starstroke=1)+
+  geom_line(data=rd.sub, aes(x=start,y=norm), color="grey30")+
+  geom_area(data=rd.sub, aes(x=start,y=norm), fill="grey80", position = 'identity', alpha=0.4)+
+  geom_vline(xintercept = c(4345098,4355772), alpha=0.5, color = "red", linewidth=1)+
+  geom_text(data=pf5_6, aes(x=label_position, y=rnorm, label=stringr::str_wrap(label_text,10), color=label), angle = 30, nudge_x = 20, nudge_y = -0.15, hjust = 1, vjust=1, size=8, lineheight = 0.75) + 
+  geom_text(data=pf5_6, aes(x=label_position, y=rnorm, label=locus_text, color=label), angle = 90, nudge_y = 0.15, nudge_x = 0, hjust = 0, vjust=0.5, size=6) 
+```
+
+
+```{r, fig.height = 15, fig.width = 15, warning=FALSE}
+rnorm_plot
+```
+
+Save
+```{r, warning=FALSE}
+ggsave("./figures/Pf5_read_depth_normalized_rev.svg", plot = rnorm_plot, device = "svg",width = unit(18,"cm"), height = unit(15,"cm"), dpi = 300)
+
+ggsave("./figures/Pf5_read_depth_normalized_rev.png", plot = rnorm_plot, device = "png",width = unit(18,"cm"), height = unit(15,"cm"), dpi = 300)
+```
+
+#### PA14 WT
+
+To address reviewer comment.
+
+```{r}
+wt_rd_plot <- ggplot() +
+  theme_bw()+
+  labs(y = "Read depth")+
+  theme(axis.title.x = element_blank(), 
+        axis.title.y = element_text(size=30, margin = margin(t = 0, r = 10, b = 0, l = 0)),
+        axis.text.x = element_text(size=20),
+        axis.text.y = element_text(size=24),
+        legend.position = "none", 
+        strip.background = element_blank(), 
+        strip.text.x = element_blank(), 
+        panel.grid = element_blank(),
+        panel.margin.y=unit(1,"lines"))+
+  scale_x_continuous(labels=comma)+
+  geom_vline(xintercept = c(4345098,4355772), alpha=0.1, color = "red", linewidth=1)+
+  geom_line(data=wt, aes(x=start,y=read_depth), color="grey30")
+
+wt_rd_plot
+```
+
+
 
 ### Full vs mini read depth
 
@@ -374,7 +488,7 @@ For original P. aeruginosa PA14 (from Pseudomonas Genome Database):
 
 For new reference genome (use this since read depth calculated using reads mapped to new reference):
 
-- Pf5 phage region: 4345098-4355762
+- Pf5 phage region: 4345108-4355762
 - pf5r duplicated region: 4353489-4353504 (16bp)
 - Miniphage junction in PA14*full/mini: = 4347992, 4352028 =
 - pf5r gene ORF: 4353259-4353525
@@ -394,8 +508,8 @@ Try calculating from:
 
 ```{r}
 full_rd <- rd.sub[which(rd.sub$start >= 4348000 & rd.sub$start <= 4352020),] #subset Pf5 region present only in full-length Pf5 phage
-pf5_rd <- rd.sub[which(rd.sub$start >= 4345100 & rd.sub$start <= 4355760),] #subset only Pf5 reads (removing flanking gene)
-mini_full_rd <- pf5_rd[which((pf5_rd$start >= 4345100 & pf5_rd$start <= 4348000) | (pf5_rd$start >= 4352020 & pf5_rd$start <= 4355760)),] #subset full+mini region
+pf5_rd <- rd.sub[which(rd.sub$start >= 4345110 & rd.sub$start <= 4355760),] #subset only Pf5 reads (removing flanking gene)
+mini_full_rd <- pf5_rd[which((pf5_rd$start >= 4345110 & pf5_rd$start <= 4348000) | (pf5_rd$start >= 4352020 & pf5_rd$start <= 4355760)),] #subset full+mini region
 mini_full_rd <- mini_full_rd[which(!(mini_full_rd$start >= 4353259 & mini_full_rd$start <= 4353525)),] #remove pf5r region b/c some reads don't bind due to pf5r mutation
 ```
 
@@ -431,23 +545,29 @@ Plot
 all_stat_plot <- ggplot(all_stat, aes(x=label, y=mean, group=region, color=region, label=mean_round))+
   geom_point(position = position_dodge(w = 0.75))+
   geom_errorbar(aes(ymin=mean-sd, ymax=mean+sd), width=.2, position=position_dodge(w = 0.75))+
-  geom_text(position=position_dodge(0.75), vjust=c(-2,-2,-2,-2,-2,-2,-2,-6,-2,-2), show.legend = FALSE, size=3)+
-  labs(x="Strains", y="Read depth normalized to bacterial chromosome", color="Pf5 region")+
-  scale_y_continuous(limits = c(0,200), breaks = seq(0,200,20))+
+  geom_text(position=position_dodge(0.75), vjust=c(-2,-2,-2,-2,-2,-2,-3,-3,-2,-2), show.legend = FALSE, size=4)+
+  labs(x="Strains", y="Read depth normalized to\nbacterial chromosome", color="Pf5 region")+
+  scale_y_continuous(limits = c(0,200), breaks = seq(0,200,50))+
   theme_bw()+
-  theme(panel.grid.major.x = element_blank(),
-        panel.grid.minor.x = element_blank(),
-        panel.grid.minor.y = element_blank(),
-        legend.position = "top",
-        legend.title = element_blank())
+  theme(
+    panel.grid.major.x = element_blank(),
+    panel.grid.minor.x = element_blank(),
+    panel.grid.minor.y = element_blank(),
+    legend.position = "top",
+    legend.text = element_text(size=10),
+    legend.title = element_blank(),
+    legend.box.margin=margin(0,0,1,0),
+    legend.box.spacing = unit(0, "pt"),
+    axis.text.x  = element_text(size=10)
+    )
 all_stat_plot
 ```
 
 Save graph
 ```{r}
-ggsave("./figures/full_mini_read_depth_normalized_stat.png", plot = all_stat_plot, device = "png", width = unit(6,"cm"), height = unit(4,"cm"), dpi = 300)
+ggsave("./figures/full_mini_read_depth_normalized_stat_rev.png", plot = all_stat_plot, width = unit(6,"cm"), height = unit(3,"cm"), dpi = 300)
 
-ggsave("./figures/full_mini_read_depth_normalized_stat.svg", plot = all_stat_plot, device = "svg", width = unit(6,"cm"), height = unit(4,"cm"), dpi = 300)
+ggsave("./figures/full_mini_read_depth_normalized_stat_rev.svg", plot = all_stat_plot, width = unit(6,"cm"), height = unit(3,"cm"), dpi = 300)
 ```
 
 ### Miniphage diversity
@@ -457,7 +577,11 @@ mini_del <- read.csv("./whole_genome_sequencing/breseq_data/breseq_miniphage.csv
 strain_order <- c("PA14", "PA14*mini", "PA14*full/mini 4", "PA14*full/mini 3", "PA14*full/mini 2", "PA14*full/mini 1")
 
 mini_del_long <- mini_del %>%
-  mutate(ylabel = factor(strain, levels = strain_order))
+  mutate(
+    ylabel = factor(strain, levels = strain_order),
+    line_num = row_number(),
+    text_color = ifelse(side_1_position==4348001, "red", "black")
+    )
 
 mini_color <- mini_del_long %>%
   select(color, ylabel) %>%
@@ -508,32 +632,104 @@ ggsave("./figures/miniphage_deletion_position.png", plot = mini_div_plot, device
 ggsave("./figures/miniphage_deletion_position.svg", plot = mini_div_plot, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"))
 ```
 
+```{r}
+facet_order <- c("PA14*full/mini 1", "PA14*full/mini 2", "PA14*full/mini 3",  "PA14*full/mini 4", "PA14*mini")
+facet_label <- data.frame(
+  ylabel = factor(facet_order, levels = c("PA14", "PA14*full/mini 1", "PA14*full/mini 2", "PA14*full/mini 3",  "PA14*full/mini 4","PA14*mini")),
+label_position = rep(4345081, times=5),
+line_num = c(2, 6, 13, 3, 1)
+)
+
+mini_div_plot2 <- ggplot() +
+  geom_hline(yintercept ="PA14", color= "black")+
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  geom_gene_arrow(data=pf5_single, aes(xmin = new_start, xmax = new_end, y = ylabel, fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
+  geom_text(data=pf5_single, aes(x=label_position, y=ylabel, label=stringr::str_wrap(label,10), color=label), angle = 30, nudge_x = 20, nudge_y = -0.5, hjust = 1, vjust=1, size=4, lineheight = 0.75)+
+  scale_fill_manual(values = lighten(pf_colors, 0.2), name="Gene", na.value = "white")+
+  scale_color_manual(values = darken(pf_colors, 0.2))+
+  new_scale_color() +
+  geom_linerange(data=mini_del_long, aes(y=line_num, xmin=side_1_position, xmax=side_2_position, color=ylabel))+
+  geom_label(data=facet_label, aes(x=label_position, y=line_num, label=ylabel), angle = 0, hjust = "middle", size=4, show.legend = FALSE, lineheight=1, fill="white") +
+  scale_color_manual(values = brewer_pal(palette = "Set1")(8)[-6], guide="none")+
+  new_scale_color() +
+  geom_text(data=mini_del_long, aes(y=line_num, x=side_1_position, label = comma(side_1_position)), hjust=1.1, size=3)+
+  geom_text(data=mini_del_long, aes(y=line_num, x=side_2_position, label = comma(side_2_position)), hjust=-0.1, size=3)+
+  # geom_text(data=mini_del_long, aes(y=line_num, x=side_1_position, label = comma(side_1_position), color=text_color), hjust=1.1, size=3)+
+  # geom_text(data=mini_del_long, aes(y=line_num, x=side_2_position, label = comma(side_2_position), color=text_color), hjust=-0.1, size=3)+
+  # scale_color_manual(values = c("black","red"), guide="none")+
+  facet_grid(forcats::fct_relevel(ylabel, "PA14", "PA14*full/mini 1", "PA14*full/mini 2", "PA14*full/mini 3",  "PA14*full/mini 4", "PA14*mini")~., scales = "free_y", space = "free", drop = TRUE, switch = "y")+
+  scale_y_discrete(expand = c(0, 1.5))+
+  force_panelsizes(rows = c(1, 0.2, 0.7, 1.1, 0.2, 0.2)) +
+  theme_light() +
+  theme(
+    legend.position = "none",
+    axis.title.x = element_blank(),
+    axis.title.y = element_blank(),
+    strip.background = element_blank(),
+    strip.text = element_blank(),
+    # strip.text.y.left = element_text(angle = 0, color = "black", size=10, hjust=1),
+    axis.text.x = element_blank(),
+    axis.text.y = element_blank(),
+    axis.ticks.x = element_blank(),
+    axis.ticks.y = element_blank(),
+    # text = element_text(size = 15),
+    panel.grid.major = element_blank(),
+    panel.grid.minor = element_blank(),
+    panel.spacing = unit(0, "lines"),
+    panel.border = element_blank(),
+    plot.margin = unit(c(-1, -0.1, -0.1, -0.1), "cm"),
+    strip.clip = "off"
+  )
+mini_div_plot2
+```
+
+Save
+```{r, warning=FALSE}
+ggsave("./figures/miniphage_deletion_position_rev.png", plot = mini_div_plot2, width = unit(8,"cm"), height = unit(6,"cm"))
+
+ggsave("./figures/miniphage_deletion_position_rev.svg", plot = mini_div_plot2, width = unit(8,"cm"), height = unit(6,"cm"))
+
+ggsave("./figures/miniphage_deletion_position_rev.pdf", plot = mini_div_plot2,width = unit(8,"cm"), height = unit(6,"cm"))
+```
+
+
 <br>
 
 ### Evolved population read depth
 
 ```{r}
-r=150
+r=170
 
 #remove locus_tag from all but last one
 pf5_pop5$locus_text <- pf5_pop5$Locus.Tag
 pf5_pop5[which(pf5_pop5$id != "delPf5"),"locus_text"] <- NA
 
 pop5.plot <- ggplot() +
-  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, fill = "red")+
-  #geom_hline(yintercept=r, alpha=0.5)+
   geom_gene_arrow(data=pf5_pop5, aes(xmin = new_start, xmax = new_end, y = r,fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
   facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
   scale_fill_manual(values = lighten(pf_colors_pop5, 0.2), name="Gene", na.value = "white")+
   scale_color_manual(values = darken(pf_colors_pop5, 0.2))+
-  theme_light()+
-  theme(axis.title.x = element_blank(), axis.title.y = element_blank(), legend.position = "none", strip.background = element_blank(), strip.text.x = element_blank(), text = element_text(size = 15))+
+  labs(y="Phage read depth relative to\nbacterial chromosome") +
   scale_x_continuous(labels=comma)+
-  coord_cartesian(ylim=c(0, 200))+
-  geom_text(data=pf5_pop5, aes(x=label_position, y=0.9*r, label=stringr::str_wrap(label,10), color=label), angle = 45, nudge_y = 0, hjust = 1, size=4) + #y=4700 for PAO1PfDI; y=160 for PAO1_WT; size=4 or 2.5, str_wrap 50, angle 50
-  geom_text(data=pf5_pop5, aes(x=label_position, y=1.1*r, label=stringr::str_wrap(locus_text,10), color=label), angle = 45, nudge_y = 0, nudge_x = 0, hjust = 0, size=4) +
+  coord_cartesian(ylim=c(0, 250))+
+  geom_text(data=pf5_pop5, aes(x=label_position, y=0.95*r, label=stringr::str_wrap(label,10), color=label), angle = 45, nudge_y = 0, hjust = 1, vjust=1, size=7) + #y=4700 for PAO1PfDI; y=160 for PAO1_WT; size=4 or 2.5, str_wrap 50, angle 50
+  geom_text(data=pf5_pop5, aes(x=label_position, y=1.1*r, label=stringr::str_wrap(locus_text,10), color=label), angle = 90, nudge_y = 0, nudge_x = 0, hjust = 0, size=5) +
   geom_line(data=pop5.sub, aes(x=start,y=norm), alpha=0.4)+
-  geom_area(data=pop5.sub, aes(x=start,y=norm),alpha = 0.1, position = 'identity')
+  geom_area(data=pop5.sub, aes(x=start,y=norm),alpha = 0.1, position = 'identity')+
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  theme_light()+
+  theme(
+    axis.title.x = element_blank(), 
+    # axis.title.y = element_blank(), 
+    legend.position = "none", 
+    strip.background = element_blank(), 
+    strip.text.x = element_blank(), 
+    strip.text.y = element_text(size = 24),
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 24),
+    axis.title.y = element_text(size = 24),
+    text = element_text(size = 18)
+    )
 ```
 
 ```{r, fig.width=12, fig.height=4, warning=FALSE}
@@ -542,11 +738,49 @@ pop5.plot
 
 
 ```{r, warning=FALSE}
-ggsave("./figures/pop5_read_depth.png", plot = pop5.plot, device = "png",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+ggsave("./figures/pop5_read_depth_rev.png", plot = pop5.plot, device = "png",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
 
-ggsave("./figures/pop5_read_depth.svg", plot = pop5.plot, device = "svg",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+ggsave("./figures/pop5_read_depth_rev.svg", plot = pop5.plot, device = "svg",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
 ```
 
+population raw reads
+```{r}
+r=15000
+pop5_raw_plot <- ggplot() +
+  geom_gene_arrow(data=pf5_pop5, aes(xmin = new_start, xmax = new_end, y = r,fill = label),arrowhead_height = unit(0.75, "cm"),arrowhead_width = unit(3, "mm"),arrow_body_height = unit(0.75,"cm"))+
+  facet_wrap(~forcats::fct_relevel(id), scales = "free_y", ncol = 1)+
+  scale_fill_manual(values = lighten(pf_colors_pop5, 0.2), name="Gene", na.value = "white")+
+  scale_color_manual(values = darken(pf_colors_pop5, 0.2))+
+  labs(y="Read depth") +
+  scale_x_continuous(labels=comma, limits = c(4344257,4356442))+
+  scale_y_continuous(labels=comma, limits = c(0, 25000))+
+  # coord_cartesian(ylim=c(0, 25000))+
+  # geom_text(data=pf5_pop5, aes(x=label_position, y=0.95*r, label=stringr::str_wrap(label,10), color=label), angle = 45, nudge_y = 0, hjust = 1, vjust=1, size=7) + 
+  # geom_text(data=pf5_pop5, aes(x=label_position, y=1.1*r, label=stringr::str_wrap(locus_text,10), color=label), angle = 90, nudge_y = 0, nudge_x = 0, hjust = 0, size=5) +
+  geom_line(data=pop5.sub, aes(x=start,y=read_depth), alpha=0.4)+
+  geom_area(data=pop5.sub, aes(x=start,y=read_depth),alpha = 0.1, position = 'identity')+
+  geom_vline(xintercept = c(4345098,4355762), alpha=0.5, color = "red")+
+  theme_light()+
+  theme(
+    axis.title.x = element_blank(), 
+    # axis.title.y = element_blank(), 
+    legend.position = "none", 
+    strip.background = element_blank(), 
+    strip.text.x = element_blank(), 
+    strip.text.y = element_text(size = 24),
+    axis.text.x = element_text(size = 20),
+    axis.text.y = element_text(size = 20),
+    axis.title.y = element_text(size = 24),
+    text = element_text(size = 18)
+    )
+pop5_raw_plot
+```
+
+```{r, warning=FALSE}
+ggsave("./figures/pop5_read_depth_raw_rev.png", plot = pop5_raw_plot, device = "png",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+
+ggsave("./figures/pop5_read_depth_raw_rev.svg", plot = pop5_raw_plot, device = "svg",width = unit(16,"cm"), height = unit(5,"cm"), dpi = 300)
+```
 
 <br>
 
@@ -646,10 +880,11 @@ pilA_gc_plot <- ggplot(pilA_gc, aes(x=Time_convert, y=value, group=strain, color
   guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
   theme(
     legend.position = "top", 
-    text = element_text(size = 18),
+    # text = element_text(size = 16),
     legend.title = element_blank(),
+    legend.text = element_text(size = 18),
     axis.text = element_text(size=18),
-    axis.title = element_text(size=18))
+    axis.title = element_text(size=20))
 ```
 
 
@@ -660,8 +895,8 @@ pilA_gc_plot
 
 
 ```{r}
-ggsave("./figures/growth_curve_OD600.png", plot = pilA_gc_plot, device = "png",width = unit(8,"cm"), height = unit(6,"cm"))
-ggsave("./figures/growth_curve_OD600.svg", plot = pilA_gc_plot, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"))
+ggsave("./figures/growth_curve_OD600_rev.png", plot = pilA_gc_plot, device = "png",width = unit(8,"cm"), height = unit(5,"cm"))
+ggsave("./figures/growth_curve_OD600_rev.svg", plot = pilA_gc_plot, device = "svg",width = unit(8,"cm"), height = unit(5,"cm"))
 ```
 
 <br>
@@ -673,12 +908,69 @@ ggsave("./figures/growth_curve_OD600.svg", plot = pilA_gc_plot, device = "svg",w
 ```{r}
 #create dummy data to set individual y-axis limits for facet_wrap
 od600_range <- c(0, 1.5) #range(gc_long[which(gc_long$variable == "Carrying~Capacity~(Final~OD[600])"), "value"])
-auc_range <- c(5,15) #range(gc_long[which(gc_long$variable == "Area~Under~the~Curve~(AUC)"), "value"])
+auc_range <- c(0,16) #range(gc_long[which(gc_long$variable == "Area~Under~the~Curve~(AUC)"), "value"])
 dummy <- data.frame(label = rep("PA14 pilA",4), value = c(od600_range, auc_range), variable = rep(unique(gc_long$variable), each=2), stringsAsFactors=FALSE)
 
+```
+
+
+Stats
+```{r}
+auc_stat <- gc_long %>%
+  filter(variable == "Area~Under~the~Curve~(AUC)")
+
+kruskal.test(value ~ label, data = auc_stat)
+
+#can't do anova since levene's test shows that variance is unequal
+# anova_result <- aov(value ~ label, data = auc_stat)
+# summary(anova_result)
+# TukeyHSD(anova_result)
+# levene_test(value ~ label, data = auc_stat)
+```
+
+```{r}
+auc_dunn <- auc_stat %>%
+  dunn_test(value ~ label) %>%
+  add_xy_position(x = "label") %>%
+  mutate(variable = "Area~Under~the~Curve~(AUC)")
+```
+
+
+```{r}
+cp_stat <- gc_long %>%
+  filter(variable == "Carrying~Capacity~(Final~OD[600])")
+
+kruskal.test(value ~ label, data = cp_stat)
+```
+
+```{r}
+cp_dunn <- cp_stat %>%
+  dunn_test(value ~ label) %>%
+  add_xy_position(x = "label") %>%
+  mutate(variable = "Carrying~Capacity~(Final~OD[600])")
+```
+
+combine stat dataframe
+```{r}
+stat_dunn <- rbind(auc_dunn, cp_dunn) %>%
+  mutate(
+    #adjust height (y position) of significance bracket to make it less cluttered
+    y.position = case_when(
+      (group1 == "B1" & group2=="new G1" & variable == "Carrying~Capacity~(Final~OD[600])") ~ 0.75,
+      (group1 == "PA14 pilA" & group2=="B1" & variable == "Carrying~Capacity~(Final~OD[600])") ~ 0.85,
+      (group1 == "PA14 pilA" & group2=="B1" & variable == "Area~Under~the~Curve~(AUC)") ~ 8.5,
+      (group1 == "B1" & group2=="new G1" & variable == "Area~Under~the~Curve~(AUC)") ~ 7.5,
+      (group1 == "PA14 pilA" & group2=="new G1" & variable == "Carrying~Capacity~(Final~OD[600])") ~ 1,
+      (group1 == "PA14 pilA" & group2=="new G1" & variable == "Area~Under~the~Curve~(AUC)") ~ 9.5,
+      TRUE ~ y.position
+    )
+  )
+```
+
+
+```{r}
 #Dot plot of carrying capacity, growth rate, area under the curve (auc_e)
 gc_stat2 <- ggplot(gc_long, aes(x = label, y = value,fill=label,color=label)) +
-  geom_point(size=3, alpha=0.3, position=position_jitter(w=0.1, h=0))+
   scale_x_discrete(labels=exprvec)+
   facet_wrap(~variable, scales = "free",strip.position = "left",labeller = label_parsed)+
   geom_blank(data=dummy)+ #dummy data to set y axis limits
@@ -686,26 +978,36 @@ gc_stat2 <- ggplot(gc_long, aes(x = label, y = value,fill=label,color=label)) +
   scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=0.5, color="black", linewidth=1) +
-  stat_summary(fun=base::mean, geom="crossbar", fatten=3, width=0.3)+
+               geom="errorbar", width=0.5, color="black", linewidth=1.5) +
+  stat_summary(fun=base::mean, geom="crossbar", fatten=2, width=0.3, color="black")+
+  geom_point(size=3, alpha=0.5, shape=21, color="black", position=position_jitter(w=0.1, h=0))+
+  stat_pvalue_manual(
+    stat_dunn,
+    tip.length = 0,
+    bracket.size=0.8,
+    size=6,
+    show.legend = FALSE
+    )+
   theme_bw()+
   theme(
     axis.title.y = element_blank(),
     axis.title.x = element_blank(),
-    axis.text.x = element_text(angle = 45, vjust = 1, hjust=1,size=18),
-    axis.text.y = element_text(size=18),
+    axis.text.x = element_text(angle = 25, vjust = 1, hjust=1,size=20),
+    axis.text.y = element_text(size=20),
     strip.background = element_blank(),
     strip.placement = "outside",
     legend.position = "none",
     text = element_text(size = 18),
-    strip.text = element_text(size=18))
+    strip.text = element_text(size=20)
+    )
 gc_stat2
 ```
 
-```{r}
-ggsave("./figures/growth_curve_OD600_stats.png", plot = gc_stat2, device = "png",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
 
-ggsave("./figures/growth_curve_OD600_stats.svg", plot = gc_stat2, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+```{r}
+ggsave("./figures/growth_curve_OD600_stats_rev.png", plot = gc_stat2, device = "png",width = unit(8,"cm"), height = unit(6,"cm"))
+
+ggsave("./figures/growth_curve_OD600_stats_rev.svg", plot = gc_stat2, device = "svg",width = unit(8,"cm"), height = unit(6,"cm"))
 ```
 
 
@@ -781,7 +1083,7 @@ exprvec <- c("None", "PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), 
 
 cfu_pilA_anc$sup_label <- factor(cfu_pilA_anc$sup_label,levels = c("None", "PA14 WT", "PA14 pilA", "PA14*full", "PA14*full/mini"))
 
-cfu_pilA_anc$bac_label <- factor(cfu_pilA_anc$bac_label,levels = c("PA14 WT", "PA14 pilA"), ordered = T, labels= c(expression(paste("PA14 ","WT")), expression(paste("PA14",Delta,italic("pilA")))))
+cfu_pilA_anc$bac_label <- factor(cfu_pilA_anc$bac_label,levels = c("PA14 WT", "PA14 pilA"), ordered = T, labels= c("<b>PA14 WT</b>", "<b>PA14&Delta;<i>pilA</i></b>"))
 ```
 
 
@@ -789,34 +1091,42 @@ take average of replicates
 
 ```{r, fig.width=10}
 pilA_anc_sup_avg_plot <- ggplot(cfu_pilA_anc, aes(x=hour, y=CFU.mL, group=abbreviation, color=sup_label))+
-  geom_point(alpha=0.5, size=1.5, shape=16, show.legend = FALSE)+
+  geom_point(alpha=0.5, size=3, shape=19, show.legend = FALSE)+
   # geom_line()+
-  facet_wrap(~bac_label, ncol = 2, labeller = label_parsed)+
-  scale_y_continuous(trans = "log10", breaks = c(1e6,1e7,1e8,1e9,1e10), limits = c(1e6,1e10))+
+  facet_wrap(~bac_label, ncol = 2)+
+  # scale_y_continuous(trans = "log10", breaks = c(1e6,1e7,1e8,1e9,1e10), limits = c(1e6,1e10))+
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),labels = trans_format("log10", math_format(10^.x)), limits = c(1e6,1e10))+
   scale_color_manual(values = col_hex2, labels=exprvec)+
   stat_summary(fun=mean, geom = "line")+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=0.8) +
+               geom="errorbar", width=1.25, size=1.25) +
   labs(x="Hours", y="CFU/mL", color="Supernatant")+
   theme_bw()+
-  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3), nrow=2, byrow=TRUE))+
   theme(
-    axis.title.y = element_text(size=16),
-    axis.title.x = element_text(size=16),
-    axis.text = element_text(size=16),
-    text = element_text(size = 16),
-    strip.text = element_text(size=16),
-    legend.text = element_text(size=16)
+    axis.title.y = element_text(size=18),
+    axis.title.x = element_text(size=18),
+    axis.text = element_text(size=18),
+    # text = element_text(size = 18),
+    strip.text = element_markdown(size=14),
+    legend.text = element_text(hjust=0, size=16, margin = margin(r = 10, l=2, unit = "pt")),
+    legend.position = "top",
+    legend.title = element_text(size=16, margin = margin(r = 15)),
+    legend.margin=margin(0,0,1,0),
+    legend.box.margin=margin(0,0,1,0),
+    legend.box.spacing = unit(0, "pt"),
+    legend.spacing.x = unit(1.5, "cm"),
+    panel.grid.minor = element_blank()
   )
 pilA_anc_sup_avg_plot
 ```
 
 save
 ```{r}
-ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL.png", units = "cm", width = 23, height = 10, device = "png", dpi = 300)
+ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL_rev.png", units = "cm", width = 20, height = 12, dpi = 300)
 
-ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL.svg", units = "cm", width = 23, height = 10, device = "svg", dpi = 300)
+ggsave(plot = pilA_anc_sup_avg_plot, filename = "./figures/supernatant_CFU_mL_rev.svg", units = "cm", width = 20, height = 12, dpi = 300)
 ```
 
 ### Bacteria growth curve
@@ -840,49 +1150,76 @@ col_hex3 <- col_hex
 names(col_hex3)[4] <- "PA14 WT"
 
 plot_sub3 <- ggplot(sub2_pilA, aes(x=hour, y=CFU.mL, group=bac_label, color=bac_label))+
-  geom_point(alpha=0.5, size=2, shape=16)+
-  stat_summary(fun=mean, geom = "line")+
-  scale_y_continuous(trans = "log10", limits = c(1e5, 1e10), breaks = c(1e5, 1e6, 1e7, 1e8, 1e9, 1e10))+
-  scale_color_manual(values = col_hex3, labels=exprvec)+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=0.5) +
-  labs(x="Time (h)", y="CFU/mL", color="Strains")+
+               geom="errorbar", width=1, linewidth=1) +
+  stat_summary(fun=mean, geom = "line", linewidth=1)+
+  scale_y_log10(breaks = c(1e5, 1e6, 1e7, 1e8, 1e9, 1e10),labels = trans_format("log10", math_format(10^.x)), limits = c(1e5, 1e10)) +
+  geom_point(alpha=0.5, size=3, shape=16, show.legend = FALSE)+
+  scale_color_manual(values = col_hex3, labels=exprvec)+
+  
+  labs(x="Time (h)", y="CFU/mL")+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
   theme_bw()+
-  theme(legend.position = "top", text = element_text(size = 18))+
-  guides(colour = guide_legend(override.aes = list(linewidth = 3)))
+  theme(
+    legend.position = "top", 
+    legend.title = element_blank(),
+    legend.text = element_text(size=14, margin = margin(r = 10, l=1, unit = "pt")),
+    legend.margin=margin(0,0,1,0),
+    legend.box.margin=margin(0,0,1,0),
+    legend.box.spacing = unit(0, "pt"),
+    legend.key.spacing.x = unit(0, "pt"),
+    text = element_text(size = 18),
+    axis.title = element_text(size=18),
+    axis.text = element_text(size=16),
+    panel.grid.minor = element_blank()
+    )
 plot_sub3
 ```
 
 ```{r}
-ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL.png", device = "png",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL_rev.png", width = unit(6,"cm"), height = unit(4.5,"cm"), dpi = 300)
 
-ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL.svg", device = "svg",width = unit(8,"cm"), height = unit(6,"cm"), dpi = 300)
+ggsave(plot = plot_sub3, filename = "./figures/growth_curve_CFU_mL_rev.svg", width = unit(6,"cm"), height = unit(4.5,"cm"), dpi = 300)
 ```
 
 ### CFU stats
 
-with pilA
-
+with pilA at 24h
 ```{r}
 sub2_pilA_24h <- sub2_pilA %>%
   filter(hour == 24)
+```
 
+calculate significance using kruskal wallis
+```{r}
+kruskal.test(CFU.mL ~ bac_label, data = sub2_pilA_24h)
+```
+
+```{r}
+cfu_dunn <- sub2_pilA_24h %>%
+  dunn_test(CFU.mL ~ bac_label) %>%
+  add_xy_position(x = "bac_label")
+```
+
+
+```{r}
 cfu_stat_plot2 <- ggplot(sub2_pilA_24h, aes(x=bac_label, y=CFU.mL, color=bac_label, fill=bac_label, group=bac_label))+
-  geom_point(size=3, alpha=0.5, position=position_jitter(w=0.1, h=0))+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=0.1, color="black") +
+               geom="errorbar", width=0.3, size=1.5, color="black") +
   stat_summary(fun=base::mean, geom="crossbar", fatten = 3, width = 0.2)+
   labs(y="CFU/mL at 24 hours")+
+  geom_point(size=3, alpha=0.75, position=position_jitter(w=0.1, h=0))+
   scale_color_manual(values = col_hex3)+
   scale_x_discrete(labels=exprvec)+
-  scale_y_continuous(limits = c(1e8,9e9), breaks = c(1e8,5e8,1e9,5e9,9e9))+
+  # scale_y_continuous(limits = c(1e8,9e9), breaks = c(1e8,5e8,1e9,5e9,9e9))+
+  scale_y_log10(breaks = c(1e8,1e9,1e10), labels = trans_format("log10", math_format(10^.x)), limits = c(1e8,9e9)) +
   theme_bw()+
   theme(axis.title.x = element_blank(),
         legend.position = "none",
         text = element_text(size = 18),
-        axis.text.x = element_text(angle = 60, vjust = 1, hjust=1))
+        axis.text.x = element_text(angle = 30, vjust = 1, hjust=1))
 ```
 
 ```{r, fig.height=6}
@@ -892,9 +1229,9 @@ cfu_stat_plot2
 <br>
 
 ```{r}
-ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat.png", device = "png",width = unit(5,"cm"), height = unit(6,"cm"), dpi = 300)
+ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat_rev.png", width = unit(4,"cm"), height = unit(4,"cm"), dpi = 300)
 
-ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat.svg", device = "svg",width = unit(5,"cm"), height = unit(6,"cm"), dpi = 300)
+ggsave(cfu_stat_plot2, filename = "./figures/growth_curve_CFU_mL_stat_rev.svg", width = unit(4,"cm"), height = unit(4,"cm"), dpi = 300)
 ```
 
 <br>
@@ -954,44 +1291,45 @@ glac2 <- glac %>%
   mutate(Competitor = ifelse(Competitor == "PA14 Ancestor", "PA14 WT", Competitor))
 glac2[which(glac2$Lac_marker == "delPf5"), "Cheater"] <- "PA14 delPf5"
 
-glac2$Cheater = factor(glac2$Cheater, levels=c("PA14 WT", "PA14*full", "PA14*full/mini", "PA14 delPf5"), ordered = TRUE, labels = c(expression(paste("PA14 WT")), expression(paste("PA14*full")), expression(paste("PA14*full/mini")), expression(paste("PA14",Delta,"Pf5"))))
+glac2$Cheater = factor(glac2$Cheater, levels=c("PA14 WT", "PA14*full", "PA14*full/mini", "PA14 delPf5"), ordered = TRUE, labels = c("<b>PA14 WT</b>", "<b>PA14*full</b>", "<b>PA14*full/mini</b>", "<b>PA14&Delta;Pf5</b>"))
 
-glac2$Competitor = factor(glac2$Competitor, levels=c("PA14 WT", "PA14 pilA"), ordered = TRUE, labels = c(expression(paste("PA14 WT")), expression(paste("PA14",Delta,italic("pilA")))))
+glac2$Competitor = factor(glac2$Competitor, levels=c("PA14 WT", "PA14 pilA"), ordered = TRUE, labels = c("<b>PA14 WT</b>", "<b>PA14&Delta;<i>pilA</i></b>"))
 
 
 all_comp2 <- ggplot(glac2, aes(x = Cheater_proportion_i, y = Selection_rate_cheater, fill = Pop_CFU_f, group=Cheater))+
-  geom_smooth(method=lm, formula = y ~ x, color="black", fill="grey")+
+  geom_smooth(method=lm, formula = y ~ x, color="black", fill="grey40")+
   geom_point(color="black",size=3, shape=21)+
-  scale_fill_gradientn(colours = viridis(256, option = "H"),
-                       trans="log",
-                       breaks=c(1e7,1e8,1e9,1e10),
-                       limits=c(1e7,1e10))+
-  # facet_grid(Competitor~Cheater, scales = "free_x", labeller = label_parsed)+
+  scale_fill_gradientn(colours = viridis(256, option = "H"), trans = "log", breaks = c(1e7, 1e8, 1e9, 1e10), limits = c(1e7, 1e10))+
   labs(x="Competitor initial proportion", y="Net fitness advantage of competitor", fill="Final Population\n(CFU/mL)")+
   geom_hline(yintercept = 0)+
   theme_bw()+
   scale_x_continuous(limits = c(0,1), breaks = c(0,0.5,1))+
   scale_y_continuous(limits = c(-5,11), breaks = c(-5,0,5,10))+
-  #scale_x_continuous(limits = c(0.001,1), trans = "log", breaks = c(0, 0.001, 0.01, 0.1, 1))+
-  theme(text = element_text(size = 18),
-        axis.text.x = element_text(size = 18),
-        axis.text.y = element_text(size = 18),
-        legend.position = "right",
-        panel.spacing.x = unit(8, "mm"),
-        legend.title = element_text(size=18),
-        legend.text = element_text(size=18),
-        panel.grid.minor = element_blank())
+  theme(
+    axis.title = element_text(size=24),
+    axis.text.x = element_text(size = 22),
+    axis.text.y = element_text(size = 22),
+    legend.position = "top",
+    legend.key.width = unit(3, "cm"),
+    legend.title = element_text(size=20),
+    legend.text = element_text(hjust=0,size=20),
+    strip.text = element_markdown(size=20, margin = margin(0.2,0.1,0.1,0.1, "cm"), hjust=0.5, vjust=0.5),
+    strip.text.x = element_markdown(size = 22, hjust=0.5, vjust=0.5),
+  strip.text.y = element_markdown(size = 22, hjust=0.5, vjust=0.5),
+  strip.placement = "inside",
+  panel.spacing.x = unit(8, "mm"),
+  panel.grid.minor = element_blank()
+    )
 ```
 
 ```{r, fig.width=10, fig.height=8}
-all_comp3 <- all_comp2 + facet_grid2(Competitor~Cheater, scales = "free_x", labeller = label_parsed, render_empty = FALSE)
+all_comp3 <- all_comp2 + facet_grid2(Competitor~Cheater, scales = "free_x", render_empty = FALSE)
 all_comp3
 ```
 
-
 ```{r}
-ggsave(plot=all_comp3, "./figures/net_fitness.png", height = 5, width = 14, device = "png", dpi = 300)
-ggsave(plot=all_comp3, "./figures/net_fitness.svg", height = 5, width = 14, device = "png", dpi = 300)
+ggsave(plot=all_comp3, "./figures/net_fitness_rev.png", height = 7.5, width = 16, dpi = 300)
+ggsave(plot=all_comp3, "./figures/net_fitness_rev.svg", height = 7.5, width = 16, dpi = 300)
 ```
 
 
@@ -1031,44 +1369,61 @@ all_tp_long[which(all_tp_long$strain=="B1"),"label"] <- "PA14*full"
 all_tp_long[which(all_tp_long$strain=="new G1"),"label"] <- "PA14*full/mini"
 
 all_tp_long$Frequency_f = factor(all_tp_long$Frequency, levels=c("1:9", "9:1"))
-levels(all_tp_long$Frequency_f) = c("1:9"=expression(paste(italic("pf5r"), " rare")), "9:1"=expression(paste(italic("pf5r"), " 1:1")))
+levels(all_tp_long$Frequency_f) = c("1:9"="<b><i>pf5r</i> rare</b>", "9:1"="<b><i>pf5r</i> 1:1</b>")
 
 all_tp_long$Lac_marker_f = factor(all_tp_long$Lac_marker, levels=c("Lac Ancestor", "B1", "new G1"))
-levels(all_tp_long$Lac_marker_f) = c("Lac Ancestor"=expression(paste("PA14 WT")), "B1"=expression(paste("PA14*full")), "new G1"=expression(paste("PA14*full/mini")))
+levels(all_tp_long$Lac_marker_f) = c("Lac Ancestor"="<b>PA14 WT</b>", "B1"="<b>PA14*full</b>", "new G1"="<b>PA14*full/mini</b>")
 ```
 
 Average
 
 Plot without ancestor control
-```{r, fig.width=10}
+```{r, fig.width=8}
 all_tp_long_no_anc <- all_tp_long %>%
   filter(Lac_marker != "Lac Ancestor")
 
-tp_plot_avg_no_anc <- ggplot(all_tp_long_no_anc, aes(x=Hour, y=CFU, group=label, color=label)) +
-  geom_point(alpha = 0.3, size =2, show.legend = FALSE)+
+tp_plot_avg_no_anc <- ggplot(all_tp_long_no_anc, aes(x=Hour, y=CFU, group=label, color=label, fill=label)) +
   stat_summary(fun=mean, geom = "line")+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=1) +
-  facet_grid(Frequency_f~Lac_marker_f, labeller=label_parsed) +
+               geom="errorbar", width=2, size=0.75) +
+  geom_point(shape=21, alpha = 0.5, size=2, color="black", show.legend = FALSE)+
+  facet_grid(Frequency_f~Lac_marker_f) +
   scale_color_manual(values = col_hex2, drop=F)+
-  scale_y_continuous(trans = 'log10')+
+  scale_fill_manual(values = col_hex2, drop=F)+
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),labels = trans_format("log10", math_format(10^.x))) +
+  # scale_y_continuous(trans = 'log10')+
   labs(y="CFU/mL", x="Time (h)", color="Strains")+
   theme_bw()+
   guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
-  theme(text = element_text(size = 20),
-      legend.text = element_text(hjust=0,size=18),
-      axis.text.x = element_text(size = 18),
-      axis.text.y = element_text(size = 18),
-      legend.position = "top",
-      legend.title = element_blank())
+  theme(
+    # text = element_text(size = 8),
+    legend.text = element_text(hjust=0,size=14, margin = margin(r = 10, l=2, unit = "pt")),
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 18),
+    axis.title = element_text(size=18),
+    strip.text = element_markdown(size=14, margin = margin(0.2,0.1,0.1,0.1, "cm"), hjust=0.5, vjust=0.5),
+    strip.text.x = element_markdown(size = 14, hjust=0.5, vjust=0.5),
+  strip.text.y = element_markdown(size = 14, hjust=0.5, vjust=0.5),
+  strip.placement = "inside",
+  legend.margin=margin(0,0,1,0),
+  legend.box.margin=margin(0,0,1,0),
+  legend.box.spacing = unit(0, "pt"),
+  legend.position = "top",
+  legend.title = element_blank(),
+  panel.grid.minor = element_blank(),
+  # legend.key.width = unit(0.4, "lines"),
+  legend.spacing.y = unit(3, "lines")
+)
 tp_plot_avg_no_anc
 ```
 
-```{r}
-ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.png", units = "cm", height = 18, width = 24, device = "png", dpi = 300) 
 
-ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT.svg", units = "cm", height = 18, width = 24, device = "svg", dpi = 300)
+
+```{r}
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT_rev.png", units = "cm", height = 12, width = 16, dpi = 300) 
+
+ggsave(plot=tp_plot_avg_no_anc, filename = "./figures/competition_timepoint_avg_WT_rev.svg", units = "cm", height = 12, width = 16, dpi = 300)
 ```
 
 <br>
@@ -1103,38 +1458,49 @@ pilA_tp_long$id <- paste(pilA_tp_long$Competitions, pilA_tp_long$Frequency, pilA
 pilA_tp_long$Replicate <- as.factor(pilA_tp_long$Replicate)
 
 pilA_tp_long$label = factor(pilA_tp_long$strain, levels=c("Lac Ancestor", "PA14 pilA", "B1", "new G1"))
-exprvec <- c("PA14 WT", expression(paste("PA14",Delta,italic("pilA"))), "PA14*full", "PA14*full/mini")
+exprvec <- c("PA14 WT", "PA14&Delta;<i>pilA</i>", "PA14*full", "PA14*full/mini")
 
 pilA_tp_long$Frequency_f = factor(pilA_tp_long$Frequency, levels=c("1:9", "9:1"))
-levels(pilA_tp_long$Frequency_f) = c("1:9"=expression(paste(italic("pf5r"), " rare")), "9:1"=expression(paste(italic("pf5r"), " 1:1")))
+levels(pilA_tp_long$Frequency_f) = c("1:9"="<b><i>pf5r</i> rare</b>", "9:1"="<b><i>pf5r</i> 1:1</b>")
 
 pilA_tp_long$Lac_marker_f = factor(pilA_tp_long$Lac_marker, levels=c("Lac Ancestor", "B1", "new G1"))
-levels(pilA_tp_long$Lac_marker_f) = c("Lac Ancestor"=expression(paste("PA14 WT")), "B1"=expression(paste("PA14*full")), "new G1"=expression(paste("PA14*full/mini")))
+levels(pilA_tp_long$Lac_marker_f) = c("Lac Ancestor"="<b>PA14 WT</b>", "B1"="<b>PA14*full</b>", "new G1"="<b>PA14*full/mini</b>")
 ```
 
 
 plot
-```{r, fig.width=10}
+```{r}
 pilA_tp_plot_avg <- ggplot(pilA_tp_long, aes(x=Hour, y=CFU, group=label, color=label)) +
   # geom_line()+
-  geom_point(show.legend =FALSE, alpha=0.5, shape=16)+
+  geom_point(show.legend =FALSE, alpha=0.5, shape=16, size=3)+
   stat_summary(fun=mean, geom = "line")+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width=1) +
-  facet_grid(Frequency_f~Lac_marker_f, labeller=label_parsed) +
+               geom="errorbar", width=1.5, size=1) +
+  facet_grid(Frequency_f~Lac_marker_f) +
   scale_color_manual(values = col_hex, drop=F, labels=exprvec)+
-  scale_y_continuous(trans = 'log10', breaks = c(1e4,1e5,1e6,1e7,1e8,1e9,1e10), limits = c(1e4,1e10))+
+  scale_y_log10(breaks = c(1e4, 1e6, 1e8, 1e10),labels = trans_format("log10", math_format(10^.x)), limits = c(1e4,1e10)) +
   labs(y="CFU/mL", x="Time (h)", color="Strains")+
   theme_bw()+
   guides(colour = guide_legend(override.aes = list(linewidth = 3)))+
-  theme(text = element_text(size = 20),
-        legend.text = element_text(hjust=0,size=16),
-        axis.text.x = element_text(size = 16),
-        axis.text.y = element_text(size = 16),
-        legend.position = "right",
-        # panel.spacing.x = unit(8, "mm"),
-        legend.title = element_text(size=18))
+  theme(
+    axis.text.x = element_text(size = 18),
+    axis.text.y = element_text(size = 16),
+    axis.title = element_text(size=20),
+    strip.text = element_markdown(size=18, margin = margin(0.2,0.1,0.1,0.1, "cm"), hjust=0.5, vjust=0.5),
+    strip.text.x = element_markdown(size = 18, hjust=0.5, vjust=0.5),
+  strip.text.y = element_markdown(size = 18, hjust=0.5, vjust=0.5),
+  strip.placement = "inside",
+  legend.margin=margin(0,0,1,0),
+  legend.box.margin=margin(0,0,1,0),
+  legend.box.spacing = unit(0, "pt"),
+  legend.position = "top",
+  legend.title = element_blank(),
+  legend.text = element_markdown(hjust=0, size=18, margin = margin(r = 10, l=2, unit = "pt")),
+  panel.grid.minor = element_blank(),
+  # legend.key.width = unit(0.4, "lines"),
+  legend.spacing.y = unit(3, "lines")
+    )
 
 pilA_tp_plot_avg
 ```
@@ -1142,9 +1508,9 @@ pilA_tp_plot_avg
 
 Save plot
 ```{r}
-ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA.png", units = "cm", height = 15, width = 30, device = "png", dpi=300)
+ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA_rev.png", units = "cm", height = 14, width = 25, dpi=300)
 
-ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA.svg", units = "cm", height = 15, width = 30, device = "svg", dpi=300)
+ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pilA_rev.svg", units = "cm", height = 14, width = 25, dpi = 300)
 ```
 
 <br>
@@ -1155,53 +1521,497 @@ ggsave(plot=pilA_tp_plot_avg, filename = "./figures/competition_timepoint_avg_pi
 
 ```{r}
 twitch <- read.csv("./twitch_assay/fitness_assay_newG1_twitch.csv") %>%
-  filter(Freq == "1:9" | Freq == "9:1") %>%
-  filter(Competition == "PA14 Ancestor vs new G1" | Competition == "PA14 Ancestor vs B1")
+  filter(
+    Freq == "1:9" | Freq == "9:1",
+    Competition == "PA14 Ancestor vs new G1" | Competition == "PA14 Ancestor vs B1"
+    ) %>%
+  mutate(
+    Time_h = factor(Time_h),
+    strain_l = case_match(
+      Strain,
+      "PA14 Ancestor" ~ "PA14 WT",
+      "B1" ~ "PA14*full",
+      "new G1" ~ "PA14*full/mini"
+    ),
+    strain_l = factor(strain_l, levels = c("PA14*full", "PA14*full/mini", "PA14 WT")),
+    comp_f = case_match(
+      Competition,
+      "PA14 Ancestor vs B1" ~ "PA14*full vs PA14 WT",
+      "PA14 Ancestor vs new G1" ~ "PA14*full/mini vs PA14 WT"
+    ),
+    comp_f = factor(comp_f, levels = c("PA14*full vs PA14 WT", "PA14*full/mini vs PA14 WT"))
+  )
 
-twitch$Time_h <- factor(twitch$Time_h)
-
-twitch$strain_l <- NA
-twitch[which(twitch$Strain == "PA14 Ancestor"), "strain_l"] <- "PA14 WT"
-twitch[which(twitch$Strain == "B1"), "strain_l"] <- "PA14*full"
-twitch[which(twitch$Strain == "new G1"), "strain_l"] <- "PA14*full/mini"
-
-twitch$comp_f = factor(twitch$Competition, levels=c("PA14 Ancestor vs B1", "PA14 Ancestor vs new G1"))
-levels(twitch$comp_f) = c("PA14 Ancestor vs new G1"=expression(paste("PA14*full vs PA14 WT")), "PA14 Ancestor vs B1"=expression(paste("PA14*full/mini vs PA14 WT")))
+twitch2 <- twitch %>%
+  mutate(
+    comp_wrap = case_match(
+      comp_f,
+      "PA14*full vs PA14 WT" ~ "PA14*full\nvs\nPA14 WT",
+      "PA14*full/mini vs PA14 WT" ~ "PA14*full/mini\nvs\nPA14 WT"
+    ),
+    label = paste0(strain_l, " ", Time_h, "h", "\n", comp_f),
+    time_comp = interaction(Time_h, comp_f, sep = "!")
+  )
 ```
 
 
 ## Figures
 
 ```{r}
-twitch_plot <- ggplot(twitch, aes(x=Time_h, y=Twitch_mm, color=strain_l, fill=strain_l, group=strain_l))+
-  geom_point(alpha=0.25, position=position_dodge(w = 0.5), size=3)+
+time_stat <- twitch2 %>% 
+  group_by(comp_f, Time_h) %>%
+  wilcox_test(Twitch_mm ~ strain_l, paired = FALSE)%>% 
+  adjust_pvalue(method = "bonferroni") %>%
+  add_xy_position(x = "Time_h", dodge = 0.75)%>%
+  add_significance() %>%
+  mutate(
+    #make lines in right facet same length as left
+    xmin = case_match(
+      Time_h,
+      "0" ~ 0.7333333,
+      "24" ~ 1.7333333
+    )
+  )
+```
+
+```{r}
+twitch_time_plot <- ggplot(twitch2, aes(x=Time_h, y=Twitch_mm, group = strain_l, color = strain_l, fill = strain_l))+
   stat_summary(fun.min=function(y)(mean(y)-sd(y)),
                fun.max=function(y)(mean(y)+sd(y)),
-               geom="errorbar", width = 0.4, position = position_dodge(w = 0.5),
-               show.legend = FALSE, linewidth=1)+
-  stat_summary(fun=base::mean, geom="crossbar", fatten = 4, width = 0.3, position = position_dodge(w = 0.5), show.legend = FALSE)+
-  facet_grid(.~comp_f, labeller=label_parsed)+
+               geom="errorbar", width = 0.25, position = position_dodge(w = 0.75), show.legend = FALSE, linewidth=1.25)+
+  stat_summary(fun=base::mean, geom="crossbar", fatten = 4, width = 0.5, position = position_dodge(w = 0.75), show.legend = FALSE)+
+  geom_point(alpha=0.5, position = position_jitterdodge(dodge.width=0.75, jitter.width = 0.25), size=2.5, color="black", shape=21)+
+  facet_wrap(vars(comp_f))+
+  stat_pvalue_manual(
+    time_stat, label = "{p.adj.signif}",
+    y.position = c(11,11,11,11),
+    tip.length = 0,
+    bracket.size=1,
+    size=6,
+    show.legend = FALSE
+    )+
   scale_color_manual(values = col_hex2)+
   scale_fill_manual(values = col_hex2)+
-  labs(x="Timepoint (h)", y="Twitching distance (mm)", color="Strains")+
-  scale_y_continuous(limits = c(0,11), breaks = seq(0,11,1))+
-  guides(fill="none", colour = guide_legend(override.aes = list(alpha=1)))+
+  labs(x="Timepoint (h)", y="Twitching distance (mm)", fill="Strains")+
+  scale_y_continuous(limits = c(0,12), breaks = seq(0,12,2))+
   theme_bw()+
+  guides(fill = guide_legend(override.aes = list(size=3)), color = guide_legend(override.aes = list(linetype = 0)), shape="none")+
   theme(
     panel.grid.major.x = element_blank(), 
     panel.grid.minor.x = element_blank(),
     axis.title.y = element_text(size=16),
     axis.title.x = element_text(size=16),
     axis.text = element_text(size=16),
+    axis.text.x = element_text(size=16, hjust = 0.5, vjust = 1),
+    axis.text.x.bottom = element_text(size=16),
     text = element_text(size = 16),
-    strip.text = element_text(size=16),
-    legend.text = element_text(size=16),
-    legend.position = "right"
+    strip.text = element_text(size=14, face = "bold"),
+    legend.title = element_text(size=14),
+    legend.text = element_text(size=14, margin = margin(r = 10, l=2, unit = "pt")),
+    legend.position = "top",
+    legend.margin=margin(0,0,1,0),
+  legend.box.margin=margin(0,0,1,0),
+  legend.box.spacing = unit(0, "pt")
     )
-twitch_plot
+twitch_time_plot
 ```
 
 ```{r}
-ggsave(plot = twitch_plot, "./figures/twitch.png", units = "cm", height = 15, width = 25, device = "png", dpi = 300)
-ggsave(plot = twitch_plot, "./figures/twitch.svg", units = "cm", height = 15, width = 25, device = "svg", dpi = 300)
+ggsave(plot = twitch_time_plot, "./figures/twitch_rev.png", units = "cm", height = 10, width = 16, device = "png", dpi = 300)
+ggsave(plot = twitch_time_plot, "./figures/twitch_rev.svg", units = "cm", height = 10, width = 16, device = "svg", dpi = 300)
 ```
+
+
+
+
+
+
+# qPCR
+
+## Prepare Data
+
+Read in standard curve data
+```{r}
+std_curve <- read.csv("./qPCR/std_curve.csv")
+
+pflM <- std_curve %>%
+  filter(sample == "p")
+pflm_lm <- lm(data = pflM, CT_num~count_num)
+
+zot_cap <- std_curve %>%
+  filter(sample == "zc")
+zc_lm <- lm(data = zot_cap, CT_num~count_num)
+```
+
+Read qPCR data
+```{r}
+#overnights
+on_qpcr <- read.csv("./qPCR/overnight_qpcr.csv")
+
+#timepoints
+qpcr_data <- read.csv("./qPCR/qPCR_data.csv") 
+```
+
+## overnight
+
+```{r}
+on <- on_qpcr %>%
+  separate(Sample.Name, into = c("sample", "biorep"), sep = "(?<=[A-Za-z])(?=[0-9])") %>%
+  mutate(
+    CT_num = as.numeric(ifelse(CT == "Undetermined", NA, CT)),
+    dil_log10copies = (CT_num - pflm_lm$coefficients[[1]]) / pflm_lm$coefficients[[2]],
+    dil_copies = (10^dil_log10copies),
+    copies = dil_copies * 10,
+    log10copies = log10(copies),
+    dnase_vol_uL = 89, #supernatant volume (uL) that was DNase treated
+    rxn_vol_uL = 100, #total dnase reaction volume (uL)
+    multiplier = 1/(dnase_vol_uL/rxn_vol_uL), # total rxn solution to supernatant ratio (1:0.89)
+    qpcr_vol_uL = 2, #treated supernatant volume (uL) used in qPCR
+    phage_uL = (copies / qpcr_vol_uL) * multiplier, #copy number of phage per uL
+    phage_mL = phage_uL * 1000,
+    sample_label = case_match(
+      sample,
+      "f" ~ "PA14*full",
+      "fm" ~ "PA14*full/mini",
+      "WT" ~ "PA14 WT",
+    )
+    ) %>%
+  group_by(sample, biorep) %>%
+  filter(
+    #remove outliers
+    log10copies >= quantile(log10copies, 0.25) - 1.5 * IQR(log10copies),
+    log10copies <= quantile(log10copies, 0.75) + 1.5 * IQR(log10copies)
+  ) %>%
+  ungroup() 
+
+
+#remove bio reps with not enough technical replicates
+on_sub <- on %>%
+  group_by(sample, biorep) %>%
+  filter(n() > 2) %>%
+  ungroup() %>%
+  mutate(
+    #since biorep 2 for WT was removed, rename biorep 3 as 2 to prevent skipped numbering
+    biorep = ifelse(sample == "WT" & biorep==3, 2, biorep)
+  )
+```
+
+
+## timepoint
+
+Clean data by:
+
+- Removing outliers (most likely pipetting error)
+- Relabeling sample and target name to a clearer description
+- Calculate for actual copy number per mL given that 2uL of DNase-treated supernatant was used in qPCR reaction (DNase treatment also dilutes supernatant by 0.89; total reaction volume 100uL = 89uL supernatant + 1uL DNase + 10uL DNAse buffer)
+
+
+```{r}
+all_combine <- qpcr_data %>%
+  #remove outliers (most likely pipetting error)
+  group_by(Target.Name, hour_num, sample) %>%
+  filter(
+    log10copies >= quantile(log10copies, 0.25) - 1.5 * IQR(log10copies),
+    log10copies <= quantile(log10copies, 0.75) + 1.5 * IQR(log10copies),
+  ) %>%
+  ungroup() %>%
+  mutate(
+    dnase_vol_uL = 89, #supernatant volume (uL) that was DNase treated
+    rxn_vol_uL = 100, #total dnase reaction volume (uL)
+    multiplier = 1/(dnase_vol_uL/rxn_vol_uL), # total rxn solution to supernatant ratio (1:0.89)
+    qpcr_vol_uL = 2, #treated supernatant volume (uL) used in qPCR
+    phage_uL = (copies / qpcr_vol_uL) * multiplier, #copy number of phage per uL
+    phage_mL = phage_uL * 1000,
+    rep_label=case_match(
+      sample,
+      "B1" ~ "Replicate 1",
+      "B2" ~ "Replicate 2",
+      "B3" ~ "Replicate 3",
+      "B4" ~ "Replicate 4",
+      "B5" ~ "Replicate 5"
+    ),
+    target_label=case_match(
+      Target.Name,
+      "pflM2" ~ "total phage population",
+      "zot-cap" ~ "full-length phage"
+    ),
+    target_label=factor(target_label, levels = c("total phage population", "full-length phage"))
+  )
+```
+
+## stats
+
+### change in total phage population
+
+Average tech rep and aggregate bio reps together
+```{r}
+all_bio_avg <- all_combine %>%
+  group_by(rep_label, target_label, hour_num) %>%
+  summarise(
+    mean = mean(phage_mL),
+    sd = sd(phage_mL),
+     .groups = "drop"
+    ) %>%
+  filter(
+    hour_num %in% c(24,48,72)
+  )%>%
+  mutate(
+    hour_f = factor(hour_num, levels = c("24", "48", "72")),
+    log10_mean = log10(mean)
+  )
+```
+
+### total pop calc
+
+
+```{r}
+tot_bio_avg <- all_bio_avg %>%
+  filter(target_label == "total phage population")%>%
+  droplevels()
+```
+
+check p-value for one way repeated measures anova (p=0.000429)
+```{r}
+#one way repeated measures anova
+aov_model = aov(data = tot_bio_avg, log10_mean ~ hour_f + Error(rep_label/hour_f))
+summary(aov_model)
+```
+
+Check assumptions for one way repeated measures anova:
+
+- normal distribution
+- sphericity
+
+Note: no need to do levene's test for repeated one way anova b/c variances between groups are not independent (each rep has a datapoint in a timepoint); more important to look at sphericity (variances of the differences between all combinations of timepoints are equal)
+
+Check normal distribution
+```{r}
+tot_bio_avg %>%
+  group_by(hour_f) %>%
+  shapiro_test(log10_mean) #normal distribution (p>0.05)
+```
+
+check sphericity
+```{r}
+res.aov <- anova_test(data = tot_bio_avg, dv = log10_mean, wid = rep_label, within = hour_f)
+res.aov #sphericity; p>0.05 for Mauchly's test so variances of group differences are equal
+```
+
+check pairwise comparison
+```{r}
+pwc <- tot_bio_avg %>%
+  pairwise_t_test(
+    log10_mean ~ hour_f, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    ) %>%
+  add_xy_position(x = "hour_f") %>%
+  mutate(
+    #for plotting, adjust y-position of bracket
+    y.position = ifelse(groups == 'c("48", "72")', 10.5, y.position)
+  )
+
+pwc
+```
+
+### full-length freq
+
+Calculate frequency of full-length phage (mean of full-length phage / mean of total phage population)
+```{r}
+full_bio_avg <- all_bio_avg %>%
+  pivot_wider(id_cols = c("rep_label", "hour_f"), names_from = target_label, values_from = mean) %>%
+  rename(
+    full_mean = "full-length phage",
+    tot_pop_mean = "total phage population"
+    ) %>%
+  mutate(
+    full_freq = (full_mean / tot_pop_mean) * 100
+  )
+```
+
+Do one-way repeated measures anova and check assumptions
+p=0.00229
+```{r}
+#one way repeated anova
+aov_model = aov(data = full_bio_avg, full_freq ~ hour_f + Error(rep_label/hour_f))
+summary(aov_model)
+```
+
+```{r}
+full_bio_avg %>%
+  group_by(hour_f) %>%
+  shapiro_test(full_freq) #normal distribution (p>0.05)
+```
+
+
+```{r}
+res.aov <- anova_test(data = full_bio_avg, dv = full_freq, wid = rep_label, within = hour_f)
+res.aov #sphericity; p>0.05 for Mauchly's test so variances of group differences are equal
+```
+
+check pairwise comparison
+```{r}
+pwc2 <- full_bio_avg %>%
+  pairwise_t_test(
+    full_freq ~ hour_f, paired = TRUE,
+    p.adjust.method = "bonferroni"
+    ) %>%
+  add_xy_position(x = "hour_f") %>%
+  mutate(
+    y.position = case_when(
+      groups=='c("24", "48")' ~ 43,
+      groups=='c("48", "72")' ~ 41,
+      groups=='c("24", "72")' ~ 48,
+      )
+  )
+pwc2
+```
+
+## Figure
+
+### overnight
+
+```{r}
+on_sub_plot <- ggplot(on_sub, aes(x=biorep, y=phage_mL, group = biorep, color=sample_label, fill=sample_label))+
+  stat_summary(fun=mean, geom="point", shape=23, size=3, show.legend = FALSE)+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=0.5, linewidth=0.75) +
+  geom_point(alpha=0.5, shape=21, size=2, color="black", position = position_jitter(w=0.2, h=0))+
+  facet_grid(cols=vars(sample_label), scales="free")+
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x)),
+              limits = c(1,1e12))+
+  scale_color_manual(values = c("#0F3C59", "#33A02C", "#E31A1C"))+
+  scale_fill_manual(values = c("#0F3C59", "#33A02C", "#E31A1C"))+
+  labs(x= "Biological replicates", y="Total Pf5 phage copies / mL")+
+  theme_bw()+
+  theme(
+    panel.grid.minor = element_blank(),
+    legend.position = "none",
+    strip.text = element_text(face = "bold"),
+    text = element_text(size = 16),
+    )
+on_sub_plot
+```
+
+save
+```{r}
+ggsave(plot = on_sub_plot, filename = "./figures/qPCR_overnight.png", width = 5, height = 4)
+
+ggsave(plot = on_sub_plot, filename = "./figures/qPCR_overnight.svg", width = 5, height = 4)
+
+# ggsave(plot = on_sub_plot, filename = "./figures/qPCR_overnight.pdf", width = 5, height = 4)
+```
+
+### timepoints
+
+```{r}
+pfu_mL_plot <- ggplot(all_combine, aes(x = hour_num, y=phage_mL, color=target_label, group = target_label))+
+  geom_point(size=1.5, alpha=0.5)+
+  facet_wrap(~rep_label, ncol=2)+
+  stat_summary(fun=mean, geom = "line")+
+  stat_summary(fun.min=function(y)(mean(y)-sd(y)),
+               fun.max=function(y)(mean(y)+sd(y)),
+               geom="errorbar", width=2.5, linewidth=0.75) +
+  labs(x= "Time (h)", y="Copies / mL", color="Target")+
+  scale_y_log10(breaks = trans_breaks("log10", function(x) 10^x),
+              labels = trans_format("log10", math_format(10^.x))) +
+  scale_x_continuous(breaks = c(0,3,6,9,12,24,27,30,33,36,48,51,54, 57, 60,72,76), labels = c(0,3,6,9,12,24,"",30,"",36,48,"",54,"",60,72,76))+
+  guides(colour = guide_legend(override.aes = list(linewidth = 3))) +
+  theme_bw()+
+  theme(
+    legend.position = "top",
+    legend.title = element_blank(),
+    legend.text = element_text(size=18),
+    legend.margin=margin(0,0,5,0),
+    legend.box.margin=margin(0,0,5,0),
+    legend.box.spacing = unit(0, "pt"),
+    # text = element_text(size = 16),
+    panel.grid.minor = element_blank(),
+    axis.title.x = element_text(size=20),
+    axis.title.y = element_text(size=20),
+    axis.text.x = element_text(size = 16),
+    axis.text.y = element_text(size=18),
+    strip.text = element_markdown(face = "bold", size=16)
+  ) 
+pfu_mL_plot
+```
+
+save
+```{r}
+ggsave(plot = pfu_mL_plot, filename = "./figures/qPCR_copies_timepoint.png", width = 30, height = 22, units = "cm", dpi=600)
+ggsave(plot = pfu_mL_plot, filename = "./figures/qPCR_copies_timepoint.svg", width = 30, height = 22, units = "cm", dpi=600)
+```
+
+### stats total population
+
+plot comparison of total phage population between 24h, 48h, and 72h. Add statistical significance.
+```{r}
+tot_bio_avg_plot <- ggplot(tot_bio_avg, aes(x = hour_f, y = mean))+
+  geom_boxplot(fill="#F8766D")+
+  geom_point(alpha=0.5, size=2)+
+  scale_y_log10(
+    breaks = c(1, 1e4, 1e8, 1e12, 1e16), 
+    labels = trans_format("log10", math_format(10^.x)), 
+    limits=c(1,1e16)
+    )+
+  stat_pvalue_manual(
+    pwc,
+    bracket.nudge.y = 1,
+    step.increase = 0.07,
+    tip.length = 0,
+    size=2.5
+    ) +
+  labs(x= "Time (h)", y="Total phage population (copies/mL)")+
+  theme_bw()+
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.title = element_text(size=8),
+    axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size=8),
+    legend.position = "none"
+  )
+tot_bio_avg_plot
+```
+
+save
+```{r}
+ggsave(plot = tot_bio_avg_plot, filename = "./figures/qPCR_total_pop_anova.png", width = 6, height = 6, units = "cm")
+
+ggsave(plot = tot_bio_avg_plot, filename = "./figures/qPCR_total_pop_anova.svg", width = 6, height = 6, units = "cm")
+```
+
+### stats full-length phage
+
+```{r}
+full_bio_avg_plot <- ggplot(full_bio_avg, aes(x = hour_f, y = full_freq))+
+  geom_boxplot(fill="#00BFC4")+
+  geom_point(alpha=0.5, size=2)+
+  stat_pvalue_manual(
+    pwc2,
+    tip.length = 0,
+    step.increase = -0.01,
+    size=2.5
+    ) +
+  scale_y_continuous(limits = c(0,50))+
+  labs(x= "Time (h)", y="Full-length phage frequency (%)")+
+  theme_bw()+
+  theme(
+    panel.grid.minor = element_blank(),
+    panel.grid.major.x = element_blank(),
+    axis.title = element_text(size=8),
+    axis.text.x = element_text(size = 8),
+    axis.text.y = element_text(size=8),
+    legend.position = "none"
+  )
+full_bio_avg_plot
+```
+
+save
+```{r}
+ggsave(plot = full_bio_avg_plot, filename = "./figures/qPCR_full_phage_anova.png", width = 6, height = 6, units = "cm")
+ggsave(plot = full_bio_avg_plot, filename = "./figures/qPCR_full_phage_anova.svg", width = 6, height = 6, units = "cm")
+```
+
+
